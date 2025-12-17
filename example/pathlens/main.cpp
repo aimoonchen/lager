@@ -1,11 +1,11 @@
 #include <lager/lenses.hpp>
 #include <lager/store.hpp>
 #include <lager/util.hpp>
+#include <lager/extra/struct.hpp>  // LAGER_STRUCT macro
 #include <immer/box.hpp>
 #include <immer/map.hpp>
 #include <immer/vector.hpp>
 #include <immer/algorithm.hpp>  // for immer::diff
-#include <lager/event_loop/manual.hpp>
 
 #include <functional>
 #include <iomanip>
@@ -50,7 +50,7 @@ struct Value
         : data(v)
     {
     }
-    Value(const char* v)  // 新增：支持字符串字面量
+    Value(const char* v)  // Added: support string literals
         : data(std::string{v})
     {
     }
@@ -75,14 +75,14 @@ struct Value
         return std::holds_alternative<T>(data);
     }
     
-    // 获取 variant 类型索引（用于快速类型比较）
+    // Get variant type index (for fast type comparison)
     size_t type_index() const noexcept { return data.index(); }
     
-    // 判断是否为 null
+    // Check if value is null
     bool is_null() const noexcept { return std::holds_alternative<std::monostate>(data); }
 };
 
-// Value 相等比较（利用 variant 的 index 快速短路）
+// Value equality comparison (uses variant index for fast short-circuit)
 inline bool operator==(const Value& a, const Value& b) {
     return a.data == b.data;
 }
@@ -181,12 +181,12 @@ auto static_path_lens(Elements&&... elements)
 
 // ============================================================
 // Type-erased lens class
-// 支持动态路径组合的类型擦除 Lens
+// Supports dynamic path composition via type erasure
 // 
-// 设计要点:
-// 1. 使用 std::function 实现类型擦除
-// 2. 支持 | 运算符进行组合（类似 zug::comp）
-// 3. 支持 over() 操作用于函数式更新
+// Design points:
+// 1. Uses std::function for type erasure
+// 2. Supports | operator for composition (similar to zug::comp)
+// 3. Supports over() operation for functional updates
 // ============================================================
 class ErasedLens
 {
@@ -199,7 +199,7 @@ private:
     Setter setter_;
 
 public:
-    // Identity lens（默认构造为恒等 lens）
+    // Identity lens (default constructor creates identity lens)
     ErasedLens()
         : getter_([](const Value& v) { return v; })
         , setter_([](Value, Value v) { return v; })
@@ -212,16 +212,16 @@ public:
     {
     }
 
-    // 获取聚焦的值
+    // Get the focused value
     Value get(const Value& v) const { return getter_(v); }
     
-    // 设置聚焦的值，返回更新后的整体
+    // Set the focused value, returns updated whole
     Value set(Value whole, Value part) const
     {
         return setter_(std::move(whole), std::move(part));
     }
     
-    // 使用函数更新聚焦的值（over 操作）
+    // Update focused value using a function (over operation)
     template<typename Fn>
     Value over(Value whole, Fn&& fn) const
     {
@@ -231,7 +231,7 @@ public:
     }
 
     // Compose with inner lens (this -> inner)
-    // 即：先用 this 聚焦，再用 inner 进一步聚焦
+    // i.e., first focus with this, then further focus with inner
     ErasedLens compose(const ErasedLens& inner) const
     {
         auto outer_get = getter_;
@@ -249,7 +249,7 @@ public:
             }};
     }
     
-    // 支持 | 运算符组合（类似 zug::comp 的风格）
+    // Support | operator for composition (similar to zug::comp style)
     friend ErasedLens operator|(const ErasedLens& lhs, const ErasedLens& rhs)
     {
         return lhs.compose(rhs);
@@ -470,15 +470,15 @@ void print_value(const Value& val,
 }
 
 // ============================================================
-// DiffEntry 结构 - 记录单个变化
+// DiffEntry structure - records a single change
 // ============================================================
 struct DiffEntry {
     enum class Type { Add, Remove, Change };
     
     Type type;
-    Path path;              // 变化的路径
-    std::string old_value;  // 旧值的字符串表示
-    std::string new_value;  // 新值的字符串表示
+    Path path;              // Path to the changed value
+    std::string old_value;  // String representation of old value
+    std::string new_value;  // String representation of new value
     
     std::string path_to_string() const {
         std::string result;
@@ -497,7 +497,7 @@ struct DiffEntry {
 };
 
 // ============================================================
-// 将 Value 转换为可读字符串
+// Convert Value to human-readable string
 // ============================================================
 std::string value_to_string(const Value& val) {
     return std::visit([](const auto& arg) -> std::string {
@@ -521,22 +521,22 @@ std::string value_to_string(const Value& val) {
 }
 
 // ============================================================
-// RecursiveDiffCollector - 递归收集所有 diff (优化版)
+// RecursiveDiffCollector - Recursively collect all diffs (optimized)
 // 
-// 优化点:
-// 1. 利用 immer::box 的指针比较实现 O(1) 快速跳过未变化节点
-// 2. 递归遍历到叶子节点，收集完整的变化路径
-// 3. 支持 ValueMap 和 ValueVector 的嵌套结构
-// 4. 正确处理 immer::diff 回调签名
-// 5. 使用双指针法同时遍历 old/new vector 以正确获取索引
+// Optimizations:
+// 1. Uses immer::box pointer comparison for O(1) fast skipping of unchanged nodes
+// 2. Recursively traverses to leaf nodes, collecting complete change paths
+// 3. Supports nested ValueMap and ValueVector structures
+// 4. Correctly handles immer::diff callback signatures
+// 5. Uses index iteration for vectors (immer::diff only supports map/set)
 // ============================================================
 class RecursiveDiffCollector {
 private:
     std::vector<DiffEntry> diffs_;
 
-    // 递归比较两个 Value，收集差异
+    // Recursively compare two Values, collecting differences
     void diff_value(const Value& old_val, const Value& new_val, Path current_path) {
-        // 快速路径：如果类型不同，直接记录为 Change
+        // Fast path: if types differ, record as Change
         if (old_val.data.index() != new_val.data.index()) {
             diffs_.push_back({DiffEntry::Type::Change, current_path, 
                               value_to_string(old_val), value_to_string(new_val)});
@@ -555,10 +555,10 @@ private:
                 diff_vector(old_arg, new_vec, current_path);
             }
             else if constexpr (std::is_same_v<T, std::monostate>) {
-                // 两个 null，无变化
+                // Both null, no change
             }
             else {
-                // 基本类型：直接比较
+                // Primitive types: direct comparison
                 const auto& new_arg = std::get<T>(new_val.data);
                 if (old_arg != new_arg) {
                     diffs_.push_back({DiffEntry::Type::Change, current_path,
@@ -602,41 +602,41 @@ private:
         immer::diff(old_map, new_map, map_differ);
     }
 
-    // 对 ValueVector 进行 diff
-    // ★ 关键：immer::diff 只支持 map/set，不支持 vector！
-    //   （参见 immer/algorithm.hpp 第 299-305 行的注释）
-    // 我们使用索引遍历的方法
+    // Diff ValueVector using index iteration
+    // KEY: immer::diff only supports map/set, NOT vector!
+    //   (See immer/algorithm.hpp lines 299-305)
+    // We use index-based iteration instead
     void diff_vector(const ValueVector& old_vec, const ValueVector& new_vec, Path current_path) {
         const size_t old_size = old_vec.size();
         const size_t new_size = new_vec.size();
         const size_t common_size = std::min(old_size, new_size);
         
-        // 1. 遍历共有索引范围，比较每个位置
+        // 1. Iterate through common index range, compare each position
         for (size_t i = 0; i < common_size; ++i) {
             const auto& old_box = old_vec[i];
             const auto& new_box = new_vec[i];
             
-            // ★ 核心优化：利用 immer::box 的 operator== 
-            //   immer/box.hpp 第 172-175 行：先比较指针，再比较值
-            //   如果指针相同，直接返回 true（O(1)）
+            // CORE OPTIMIZATION: Use immer::box operator==
+            //   immer/box.hpp lines 172-175: compares pointer first, then value
+            //   If pointer is same, returns true immediately (O(1))
             if (old_box == new_box) {
-                continue; // 完全相同（指针或值），跳过
+                continue; // Identical (same pointer or value), skip
             }
             
-            // 不同，递归比较
+            // Different, recursively compare
             Path child_path = current_path;
             child_path.push_back(i);
             diff_value(*old_box, *new_box, child_path);
         }
         
-        // 2. 处理被删除的尾部元素
+        // 2. Handle deleted tail elements
         for (size_t i = common_size; i < old_size; ++i) {
             Path child_path = current_path;
             child_path.push_back(i);
             collect_removed(*old_vec[i], child_path);
         }
         
-        // 3. 处理新增的尾部元素
+        // 3. Handle added tail elements
         for (size_t i = common_size; i < new_size; ++i) {
             Path child_path = current_path;
             child_path.push_back(i);
@@ -644,7 +644,7 @@ private:
         }
     }
 
-    // 收集被删除节点的所有叶子
+    // Collect all leaf nodes from a removed subtree
     void collect_removed(const Value& val, Path current_path) {
         std::visit([&](const auto& arg) {
             using T = std::decay_t<decltype(arg)>;
@@ -663,14 +663,14 @@ private:
                 }
             }
             else if constexpr (!std::is_same_v<T, std::monostate>) {
-                // 叶子节点（非 null）
+                // Leaf node (non-null)
                 diffs_.push_back({DiffEntry::Type::Remove, current_path,
                                   value_to_string(val), ""});
             }
         }, val.data);
     }
 
-    // 收集新增节点的所有叶子
+    // Collect all leaf nodes from an added subtree
     void collect_added(const Value& val, Path current_path) {
         std::visit([&](const auto& arg) {
             using T = std::decay_t<decltype(arg)>;
@@ -689,7 +689,7 @@ private:
                 }
             }
             else if constexpr (!std::is_same_v<T, std::monostate>) {
-                // 叶子节点（非 null）
+                // Leaf node (non-null)
                 diffs_.push_back({DiffEntry::Type::Add, current_path,
                                   "", value_to_string(val)});
             }
@@ -697,7 +697,7 @@ private:
     }
 
 public:
-    // 主入口：比较两个 Value
+    // Main entry point: compare two Values
     void diff(const Value& old_val, const Value& new_val) {
         diffs_.clear();
         diff_value(old_val, new_val, {});
