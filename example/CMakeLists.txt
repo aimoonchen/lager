@@ -12,6 +12,12 @@ add_executable(counter-std EXCLUDE_FROM_ALL
 target_link_libraries(counter-std lager-example)
 add_dependencies(examples counter-std)
 
+add_executable(pathlens EXCLUDE_FROM_ALL
+  pathlens/main.cpp
+  )
+target_link_libraries(pathlens lager-example)
+add_dependencies(examples pathlens)
+
 # ncurses examples
 # ================
 
