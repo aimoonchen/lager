@@ -568,38 +568,37 @@ private:
         }, old_val.data);
     }
 
-    // 对 ValueMap 进行 diff
-    // ★ 使用 immer::make_differ 创建 differ 对象，代码更清晰
+    // Diff ValueMap using immer::make_differ for cleaner code structure
     void diff_map(const ValueMap& old_map, const ValueMap& new_map, Path current_path) {
-        // 创建 differ 对象，封装三个回调
+        // Create differ object with three callbacks
         auto map_differ = immer::make_differ(
-            // added: 新增的 key-value pair
+            // added: new key-value pair
             [&](const std::pair<const std::string, immer::box<Value>>& added_kv) {
                 Path child_path = current_path;
                 child_path.push_back(added_kv.first);
                 collect_added(*added_kv.second, child_path);
             },
-            // removed: 删除的 key-value pair
+            // removed: deleted key-value pair
             [&](const std::pair<const std::string, immer::box<Value>>& removed_kv) {
                 Path child_path = current_path;
                 child_path.push_back(removed_kv.first);
                 collect_removed(*removed_kv.second, child_path);
             },
-            // changed: 保留的 key（可能值变了）- 两个参数，old 和 new
+            // changed: retained key (value may differ) - two params: old and new
             [&](const std::pair<const std::string, immer::box<Value>>& old_kv,
                 const std::pair<const std::string, immer::box<Value>>& new_kv) {
-                // ★ 核心优化：利用 immer::box 的指针比较 - O(1)
+                // Optimization: use immer::box pointer comparison - O(1)
                 if (old_kv.second.get() == new_kv.second.get()) {
-                    return; // 指针相同，完全未变化，跳过！
+                    return; // Same pointer, completely unchanged, skip!
                 }
-                // 指针不同，递归比较
+                // Different pointer, recursively compare
                 Path child_path = current_path;
                 child_path.push_back(old_kv.first);
                 diff_value(*old_kv.second, *new_kv.second, child_path);
             }
         );
 
-        // 使用 differ 对象进行 diff
+        // Use differ object for diff
         immer::diff(old_map, new_map, map_differ);
     }
 
@@ -712,7 +711,7 @@ public:
 
     void print_diffs() const {
         if (diffs_.empty()) {
-            std::cout << "  (无变化)\n";
+            std::cout << "  (no changes)\n";
             return;
         }
         for (const auto& d : diffs_) {
@@ -736,13 +735,13 @@ public:
 };
 
 // ============================================================
-// 完整 Diff 收集演示
+// Full Diff Collection Demo
 // ============================================================
 void demo_recursive_diff_collector()
 {
-    std::cout << "\n=== RecursiveDiffCollector 演示 ===\n\n";
+    std::cout << "\n=== RecursiveDiffCollector Demo ===\n\n";
 
-    // 创建旧状态
+    // Create old state
     ValueMap user1;
     user1 = user1.set("name", immer::box<Value>{Value{std::string{"Alice"}}});
     user1 = user1.set("age", immer::box<Value>{Value{25}});
@@ -761,11 +760,11 @@ void demo_recursive_diff_collector()
 
     Value old_state{old_root};
 
-    // 创建新状态（修改了一些内容）
+    // Create new state (with some modifications)
     ValueMap user1_new;
     user1_new = user1_new.set("name", immer::box<Value>{Value{std::string{"Alice"}}});
-    user1_new = user1_new.set("age", immer::box<Value>{Value{26}});  // 修改了 age
-    user1_new = user1_new.set("email", immer::box<Value>{Value{std::string{"alice@x.com"}}}); // 新增
+    user1_new = user1_new.set("age", immer::box<Value>{Value{26}});  // age modified
+    user1_new = user1_new.set("email", immer::box<Value>{Value{std::string{"alice@x.com"}}}); // added
 
     ValueMap user3;
     user3 = user3.set("name", immer::box<Value>{Value{std::string{"Charlie"}}});
@@ -773,46 +772,46 @@ void demo_recursive_diff_collector()
 
     ValueVector users_new;
     users_new = users_new.push_back(immer::box<Value>{Value{user1_new}});
-    users_new = users_new.push_back(immer::box<Value>{Value{user2}});  // Bob 未变
-    users_new = users_new.push_back(immer::box<Value>{Value{user3}});  // 新增 Charlie
+    users_new = users_new.push_back(immer::box<Value>{Value{user2}});  // Bob unchanged
+    users_new = users_new.push_back(immer::box<Value>{Value{user3}});  // Charlie added
 
     ValueMap new_root;
     new_root = new_root.set("users", immer::box<Value>{Value{users_new}});
-    new_root = new_root.set("version", immer::box<Value>{Value{2}});  // 修改
+    new_root = new_root.set("version", immer::box<Value>{Value{2}});  // modified
 
     Value new_state{new_root};
 
-    // 打印状态
-    std::cout << "--- 旧状态 ---\n";
+    // Print states
+    std::cout << "--- Old State ---\n";
     print_value(old_state, "", 1);
     
-    std::cout << "\n--- 新状态 ---\n";
+    std::cout << "\n--- New State ---\n";
     print_value(new_state, "", 1);
 
-    // 使用 RecursiveDiffCollector 收集所有变化
-    std::cout << "\n--- Diff 结果 ---\n";
+    // Use RecursiveDiffCollector to collect all changes
+    std::cout << "\n--- Diff Results ---\n";
     RecursiveDiffCollector collector;
     collector.diff(old_state, new_state);
     collector.print_diffs();
 
-    std::cout << "\n共检测到 " << collector.get_diffs().size() << " 处变化\n";
-    std::cout << "\n=== 演示结束 ===\n\n";
+    std::cout << "\nDetected " << collector.get_diffs().size() << " change(s)\n";
+    std::cout << "\n=== Demo End ===\n\n";
 }
 
 // ============================================================
-// immer::diff 演示函数
-// 展示如何使用 immer 原生的 diff 机制来检测变化
+// immer::diff Demo Function
+// Demonstrates how to use immer's native diff mechanism to detect changes
 // 
-// ★ 重要：immer::diff 只支持 map 和 set，不支持 vector！
-//   （参见 immer/algorithm.hpp 第 299-305 行的注释）
+// IMPORTANT: immer::diff only supports map and set, NOT vector!
+//   (See immer/algorithm.hpp lines 299-305)
 // ============================================================
 void demo_immer_diff()
 {
-    std::cout << "\n=== immer::diff 演示 ===\n\n";
+    std::cout << "\n=== immer::diff Demo ===\n\n";
 
-    // --- immer::vector 的比较 ---
-    // 注意：immer::diff 不支持 vector，需要手动比较
-    std::cout << "--- immer::vector 比较 (手动方式) ---\n";
+    // --- immer::vector comparison ---
+    // Note: immer::diff does NOT support vector, must compare manually
+    std::cout << "--- immer::vector comparison (manual) ---\n";
 
     ValueVector old_vec;
     old_vec = old_vec.push_back(immer::box<Value>{Value{std::string{"Alice"}}});
@@ -820,22 +819,22 @@ void demo_immer_diff()
     old_vec = old_vec.push_back(immer::box<Value>{Value{std::string{"Charlie"}}});
 
     ValueVector new_vec;
-    new_vec = new_vec.push_back(immer::box<Value>{Value{std::string{"Alice"}}});     // 未变
-    new_vec = new_vec.push_back(immer::box<Value>{Value{std::string{"Bobby"}}});     // 修改
-    new_vec = new_vec.push_back(immer::box<Value>{Value{std::string{"Charlie"}}});   // 未变
-    new_vec = new_vec.push_back(immer::box<Value>{Value{std::string{"David"}}});     // 新增
+    new_vec = new_vec.push_back(immer::box<Value>{Value{std::string{"Alice"}}});     // unchanged
+    new_vec = new_vec.push_back(immer::box<Value>{Value{std::string{"Bobby"}}});     // modified
+    new_vec = new_vec.push_back(immer::box<Value>{Value{std::string{"Charlie"}}});   // unchanged
+    new_vec = new_vec.push_back(immer::box<Value>{Value{std::string{"David"}}});     // added
 
-    std::cout << "旧列表: [Alice, Bob, Charlie]\n";
-    std::cout << "新列表: [Alice, Bobby, Charlie, David]\n\n";
+    std::cout << "Old list: [Alice, Bob, Charlie]\n";
+    std::cout << "New list: [Alice, Bobby, Charlie, David]\n\n";
 
-    // 手动比较 vector（immer::diff 不支持 vector）
-    std::cout << "手动比较结果:\n";
+    // Manual vector comparison (immer::diff doesn't support vector)
+    std::cout << "Manual comparison results:\n";
     
     size_t old_size = old_vec.size();
     size_t new_size = new_vec.size();
     size_t common_size = std::min(old_size, new_size);
     
-    // 比较共有索引
+    // Compare common indices
     for (size_t i = 0; i < common_size; ++i) {
         const auto& old_box = old_vec[i];
         const auto& new_box = new_vec[i];
@@ -844,33 +843,33 @@ void demo_immer_diff()
         auto* new_str = new_box->get_if<std::string>();
         
         if (old_str && new_str) {
-            // 利用 immer::box 的 operator==（内部先比较指针）
+            // Use immer::box operator== (checks pointer first)
             if (old_box == new_box) {
-                std::cout << "  [" << i << "] 保留: " << *old_str << " (指针相同)\n";
+                std::cout << "  [" << i << "] retained: " << *old_str << " (same pointer)\n";
             } else if (*old_str == *new_str) {
-                std::cout << "  [" << i << "] 保留: " << *old_str << " (值相同)\n";
+                std::cout << "  [" << i << "] retained: " << *old_str << " (same value)\n";
             } else {
-                std::cout << "  [" << i << "] 修改: " << *old_str << " -> " << *new_str << "\n";
+                std::cout << "  [" << i << "] modified: " << *old_str << " -> " << *new_str << "\n";
             }
         }
     }
     
-    // 删除的尾部元素
+    // Deleted tail elements
     for (size_t i = common_size; i < old_size; ++i) {
         if (auto* str = old_vec[i]->get_if<std::string>()) {
-            std::cout << "  [" << i << "] 删除: " << *str << "\n";
+            std::cout << "  [" << i << "] removed: " << *str << "\n";
         }
     }
     
-    // 新增的尾部元素
+    // Added tail elements
     for (size_t i = common_size; i < new_size; ++i) {
         if (auto* str = new_vec[i]->get_if<std::string>()) {
-            std::cout << "  [" << i << "] 新增: " << *str << "\n";
+            std::cout << "  [" << i << "] added: " << *str << "\n";
         }
     }
 
-    // --- immer::map 的 diff ---
-    std::cout << "\n--- immer::map diff (使用 immer::diff) ---\n";
+    // --- immer::map diff ---
+    std::cout << "\n--- immer::map diff (using immer::diff) ---\n";
 
     ValueMap old_map;
     old_map = old_map.set("name", immer::box<Value>{Value{std::string{"Tom"}}});
@@ -878,40 +877,40 @@ void demo_immer_diff()
     old_map = old_map.set("city", immer::box<Value>{Value{std::string{"Beijing"}}});
 
     ValueMap new_map;
-    new_map = new_map.set("name", immer::box<Value>{Value{std::string{"Tom"}}});      // 未变
-    new_map = new_map.set("age", immer::box<Value>{Value{26}});                        // 修改
-    new_map = new_map.set("email", immer::box<Value>{Value{std::string{"tom@x.com"}}}); // 新增
-    // city 被删除
+    new_map = new_map.set("name", immer::box<Value>{Value{std::string{"Tom"}}});      // unchanged
+    new_map = new_map.set("age", immer::box<Value>{Value{26}});                        // modified
+    new_map = new_map.set("email", immer::box<Value>{Value{std::string{"tom@x.com"}}}); // added
+    // city removed
 
-    std::cout << "旧 map: {name: Tom, age: 25, city: Beijing}\n";
-    std::cout << "新 map: {name: Tom, age: 26, email: tom@x.com}\n\n";
+    std::cout << "Old map: {name: Tom, age: 25, city: Beijing}\n";
+    std::cout << "New map: {name: Tom, age: 26, email: tom@x.com}\n\n";
 
-    std::cout << "immer::diff 结果:\n";
+    std::cout << "immer::diff results:\n";
 
     immer::diff(
         old_map,
         new_map,
-        // 删除的 key-value
+        // Removed key-value
         [](const auto& removed) {
-            std::cout << "  [删除] key=" << removed.first << "\n";
+            std::cout << "  [removed] key=" << removed.first << "\n";
         },
-        // 新增的 key-value
+        // Added key-value
         [](const auto& added) {
-            std::cout << "  [新增] key=" << added.first << "\n";
+            std::cout << "  [added] key=" << added.first << "\n";
         },
-        // 保留的 key-value (key 相同，value 可能不同)
+        // Retained key-value (key same, value may differ)
         [](const auto& old_kv, const auto& new_kv) {
-            // 利用 immer::box 的指针比较（结构共享特性）
-            // 如果指针相同，说明值完全没变
+            // Use immer::box pointer comparison (structural sharing)
+            // If pointer is same, value is completely unchanged
             if (old_kv.second.get() == new_kv.second.get()) {
-                std::cout << "  [保留] key=" << old_kv.first << " (指针相同，未变化)\n";
+                std::cout << "  [retained] key=" << old_kv.first << " (same pointer, unchanged)\n";
             } else {
-                std::cout << "  [修改] key=" << old_kv.first << " (值已变化)\n";
+                std::cout << "  [modified] key=" << old_kv.first << " (value changed)\n";
             }
         }
     );
 
-    std::cout << "\n=== diff 演示结束 ===\n\n";
+    std::cout << "\n=== Demo End ===\n\n";
 }
 
 } // namespace immer_lens
@@ -935,8 +934,8 @@ int main()
         std::cout << "2. Update item\n";
         std::cout << "U. Undo\n";
         std::cout << "R. Redo\n";
-        std::cout << "D. Demo immer::diff (基础)\n";
-        std::cout << "C. Demo RecursiveDiffCollector (完整)\n";
+        std::cout << "D. Demo immer::diff (basic)\n";
+        std::cout << "C. Demo RecursiveDiffCollector (full)\n";
         std::cout << "Q. Quit\n";
         std::cout << "Choice: ";
 
