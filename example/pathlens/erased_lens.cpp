@@ -1,0 +1,195 @@
+// erased_lens.cpp
+// Implementation of custom type-erased lens (Scheme 1)
+
+#include "erased_lens.h"
+#include <iostream>
+
+namespace immer_lens {
+
+// ============================================================
+// ErasedLens implementation
+// ============================================================
+
+ErasedLens::ErasedLens()
+    : getter_([](const Value& v) { return v; })
+    , setter_([](Value, Value v) { return v; })
+{
+}
+
+ErasedLens::ErasedLens(Getter g, Setter s)
+    : getter_(std::move(g))
+    , setter_(std::move(s))
+{
+}
+
+Value ErasedLens::get(const Value& v) const
+{
+    return getter_(v);
+}
+
+Value ErasedLens::set(Value whole, Value part) const
+{
+    return setter_(std::move(whole), std::move(part));
+}
+
+ErasedLens ErasedLens::compose(const ErasedLens& inner) const
+{
+    auto outer_get = getter_;
+    auto outer_set = setter_;
+    auto inner_get = inner.getter_;
+    auto inner_set = inner.setter_;
+
+    return ErasedLens{
+        [=](const Value& v) { return inner_get(outer_get(v)); },
+        [=](Value whole, Value new_val) {
+            auto outer_part = outer_get(whole);
+            auto new_outer = inner_set(std::move(outer_part), std::move(new_val));
+            return outer_set(std::move(whole), std::move(new_outer));
+        }};
+}
+
+ErasedLens operator|(const ErasedLens& lhs, const ErasedLens& rhs)
+{
+    return lhs.compose(rhs);
+}
+
+// ============================================================
+// Lens factory functions
+// ============================================================
+
+ErasedLens make_key_lens(const std::string& key)
+{
+    return ErasedLens{
+        // Getter
+        [key](const Value& obj) -> Value {
+            if (auto* map = obj.get_if<ValueMap>()) {
+                if (auto found = map->find(key))
+                    return **found;
+            }
+            return Value{};
+        },
+        // Setter
+        [key](Value obj, Value value) -> Value {
+            if (auto* m = obj.get_if<ValueMap>()) {
+                return Value{m->set(key, immer::box<Value>{std::move(value)})};
+            }
+#ifdef IMMER_LENS_AUTO_VIVIFICATION
+            // Auto-vivification: create new map
+            ValueMap new_map;
+            return Value{new_map.set(key, immer::box<Value>{std::move(value)})};
+#else
+            // Strict mode: log error and return unchanged
+            std::cerr << "[make_key_lens] Not a map, cannot set key: " << key << "\n";
+            return obj;
+#endif
+        }};
+}
+
+ErasedLens make_index_lens(std::size_t index)
+{
+    return ErasedLens{
+        // Getter
+        [index](const Value& obj) -> Value {
+            if (auto* vec = obj.get_if<ValueVector>()) {
+                if (index < vec->size())
+                    return *(*vec)[index];
+            }
+            return Value{};
+        },
+        // Setter
+        [index](Value obj, Value value) -> Value {
+            if (auto* v = obj.get_if<ValueVector>()) {
+                auto vec = *v;
+                while (vec.size() <= index) {
+                    vec = vec.push_back(immer::box<Value>{Value{}});
+                }
+                return Value{vec.set(index, immer::box<Value>{std::move(value)})};
+            }
+#ifdef IMMER_LENS_AUTO_VIVIFICATION
+            // Auto-vivification: create new vector
+            ValueVector new_vec;
+            while (new_vec.size() <= index) {
+                new_vec = new_vec.push_back(immer::box<Value>{Value{}});
+            }
+            return Value{new_vec.set(index, immer::box<Value>{std::move(value)})};
+#else
+            // Strict mode: log error and return unchanged
+            std::cerr << "[make_index_lens] Not a vector, cannot set index: " << index << "\n";
+            return obj;
+#endif
+        }};
+}
+
+ErasedLens path_lens(const Path& path)
+{
+    ErasedLens result; // Identity lens
+
+    for (const auto& elem : path) {
+        ErasedLens current = std::visit(
+            [](const auto& value) -> ErasedLens {
+                using T = std::decay_t<decltype(value)>;
+                if constexpr (std::is_same_v<T, std::string>) {
+                    return make_key_lens(value);
+                } else {
+                    return make_index_lens(value);
+                }
+            },
+            elem);
+
+        result = result.compose(current);
+    }
+
+    return result;
+}
+
+// ============================================================
+// Demo function
+// ============================================================
+
+void demo_erased_lens()
+{
+    std::cout << "\n=== Scheme 1: Custom ErasedLens Demo ===\n\n";
+    
+    // Use common test data
+    Value data = create_sample_data();
+    
+    std::cout << "Data structure:\n";
+    print_value(data, "", 1);
+    
+    // Test path_lens
+    std::cout << "\n--- Test 1: GET using path_lens ---\n";
+    Path name_path = {std::string{"users"}, size_t{0}, std::string{"name"}};
+    auto lens = path_lens(name_path);
+    
+    std::cout << "Path: " << path_to_string(name_path) << "\n";
+    std::cout << "Value: " << value_to_string(lens.get(data)) << "\n";
+    
+    // Test SET
+    std::cout << "\n--- Test 2: SET using path_lens ---\n";
+    Value updated = lens.set(data, Value{std::string{"Alicia"}});
+    std::cout << "After setting to \"Alicia\":\n";
+    std::cout << "New value: " << value_to_string(lens.get(updated)) << "\n";
+    
+    // Test OVER
+    std::cout << "\n--- Test 3: OVER using path_lens ---\n";
+    Path age_path = {std::string{"users"}, size_t{1}, std::string{"age"}};
+    auto age_lens = path_lens(age_path);
+    
+    std::cout << "Original age: " << value_to_string(age_lens.get(data)) << "\n";
+    Value incremented = age_lens.over(data, [](Value v) {
+        if (auto* n = v.get_if<int>()) {
+            return Value{*n + 5};
+        }
+        return v;
+    });
+    std::cout << "After +5: " << value_to_string(age_lens.get(incremented)) << "\n";
+    
+    // Test composition with | operator
+    std::cout << "\n--- Test 4: Composition with | operator ---\n";
+    auto config_version = make_key_lens("config") | make_key_lens("version");
+    std::cout << "config.version = " << value_to_string(config_version.get(data)) << "\n";
+    
+    std::cout << "\n=== Demo End ===\n\n";
+}
+
+} // namespace immer_lens

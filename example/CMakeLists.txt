@@ -14,6 +14,13 @@ add_dependencies(examples counter-std)
 
 add_executable(pathlens EXCLUDE_FROM_ALL
   pathlens/main.cpp
+  pathlens/value.cpp
+  pathlens/erased_lens.cpp
+  pathlens/lager_lens.cpp
+  pathlens/at_lens.cpp
+  pathlens/json_pointer.cpp
+  pathlens/static_path.cpp
+  pathlens/diff_collector.cpp
   )
 target_link_libraries(pathlens lager-example)
 add_dependencies(examples pathlens)
