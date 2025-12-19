@@ -7,6 +7,11 @@
 
 #include "value.h"
 
+// transient 头文件（反序列化时使用 transient 进行批量构造）
+#include <immer/map_transient.hpp>
+#include <immer/vector_transient.hpp>
+#include <immer/table_transient.hpp>
+
 #include <cstring>  // for std::memcpy
 #include <stdexcept>  // for std::runtime_error
 
@@ -26,6 +31,8 @@ std::string value_to_string(const Value& val)
             return arg ? "true" : "false";
         } else if constexpr (std::is_same_v<T, int>) {
             return std::to_string(arg);
+        } else if constexpr (std::is_same_v<T, int64_t>) {
+            return std::to_string(arg) + "L";
         } else if constexpr (std::is_same_v<T, float>) {
             return std::to_string(arg) + "f";
         } else if constexpr (std::is_same_v<T, double>) {
@@ -56,6 +63,7 @@ void print_value(const Value& val, const std::string& prefix, std::size_t depth)
                 std::cout << std::string(depth * 2, ' ') << prefix
                           << (arg ? "true" : "false") << "\n";
             } else if constexpr (std::is_same_v<T, int> ||
+                                 std::is_same_v<T, int64_t> ||
                                  std::is_same_v<T, float> ||
                                  std::is_same_v<T, double>) {
                 std::cout << std::string(depth * 2, ' ') << prefix << arg << "\n";
@@ -157,6 +165,7 @@ enum class TypeTag : uint8_t {
     Vector = 0x07,
     Array  = 0x08,
     Table  = 0x09,
+    Int64  = 0x0A,  // New: 64-bit integer
 };
 
 // Helper: write bytes to buffer
@@ -190,6 +199,13 @@ public:
         uint64_t bits;
         std::memcpy(&bits, &v, sizeof(bits));
         // Little-endian
+        for (int i = 0; i < 8; ++i) {
+            buffer.push_back(static_cast<uint8_t>((bits >> (i * 8)) & 0xFF));
+        }
+    }
+    
+    void write_i64(int64_t v) {
+        uint64_t bits = static_cast<uint64_t>(v);
         for (int i = 0; i < 8; ++i) {
             buffer.push_back(static_cast<uint8_t>((bits >> (i * 8)) & 0xFF));
         }
@@ -253,6 +269,15 @@ public:
         return v;
     }
     
+    int64_t read_i64() {
+        if (!has_bytes(8)) throw std::runtime_error("Unexpected end of buffer");
+        uint64_t bits = 0;
+        for (int i = 0; i < 8; ++i) {
+            bits |= static_cast<uint64_t>(data[pos++]) << (i * 8);
+        }
+        return static_cast<int64_t>(bits);
+    }
+    
     std::string read_string() {
         uint32_t len = read_u32();
         if (!has_bytes(len)) throw std::runtime_error("Unexpected end of buffer");
@@ -275,6 +300,9 @@ void serialize_value(ByteWriter& w, const Value& val) {
         } else if constexpr (std::is_same_v<T, int>) {
             w.write_u8(static_cast<uint8_t>(TypeTag::Int));
             w.write_i32(arg);
+        } else if constexpr (std::is_same_v<T, int64_t>) {
+            w.write_u8(static_cast<uint8_t>(TypeTag::Int64));
+            w.write_i64(arg);
         } else if constexpr (std::is_same_v<T, float>) {
             w.write_u8(static_cast<uint8_t>(TypeTag::Float));
             w.write_f32(arg);
@@ -327,6 +355,9 @@ Value deserialize_value(ByteReader& r) {
         case TypeTag::Int:
             return Value{r.read_i32()};
             
+        case TypeTag::Int64:
+            return Value{r.read_i64()};
+            
         case TypeTag::Float:
             return Value{r.read_f32()};
             
@@ -341,47 +372,50 @@ Value deserialize_value(ByteReader& r) {
             
         case TypeTag::Map: {
             uint32_t count = r.read_u32();
-            ValueMap map;
+            // 使用 transient 进行批量构造，避免每次 set 都创建新节点
+            auto transient = ValueMap{}.transient();
             for (uint32_t i = 0; i < count; ++i) {
                 std::string key = r.read_string();
                 Value val = deserialize_value(r);
-                map = map.set(key, ValueBox{std::move(val)});
+                transient.set(std::move(key), ValueBox{std::move(val)});
             }
-            return Value{std::move(map)};
+            return Value{transient.persistent()};
         }
         
         case TypeTag::Vector: {
             uint32_t count = r.read_u32();
-            ValueVector vec;
+            // 使用 transient 进行批量构造
+            auto transient = ValueVector{}.transient();
             for (uint32_t i = 0; i < count; ++i) {
                 Value val = deserialize_value(r);
-                vec = vec.push_back(ValueBox{std::move(val)});
+                transient.push_back(ValueBox{std::move(val)});
             }
-            return Value{std::move(vec)};
+            return Value{transient.persistent()};
         }
         
         case TypeTag::Array: {
             uint32_t count = r.read_u32();
-            // Build vector first, then convert to array
-            std::vector<ValueBox> temp;
-            temp.reserve(count);
+            // immer::array 的 API 限制：没有 push_back，transient 也有问题
+            // 解决方案：反序列化为 ValueVector（功能等价且更灵活）
+            auto transient = ValueVector{}.transient();
             for (uint32_t i = 0; i < count; ++i) {
                 Value val = deserialize_value(r);
-                temp.push_back(ValueBox{std::move(val)});
+                transient.push_back(ValueBox{std::move(val)});
             }
-            ValueArray arr{temp.begin(), temp.end()};
-            return Value{std::move(arr)};
+            // 返回 vector 代替 array
+            return Value{transient.persistent()};
         }
         
         case TypeTag::Table: {
             uint32_t count = r.read_u32();
-            ValueTable table;
+            // 使用 transient 进行批量构造
+            auto transient = ValueTable{}.transient();
             for (uint32_t i = 0; i < count; ++i) {
                 std::string id = r.read_string();
                 Value val = deserialize_value(r);
-                table = table.insert(TableEntry{std::move(id), ValueBox{std::move(val)}});
+                transient.insert(TableEntry{std::move(id), ValueBox{std::move(val)}});
             }
-            return Value{std::move(table)};
+            return Value{transient.persistent()};
         }
         
         default:
@@ -399,6 +433,8 @@ std::size_t calc_serialized_size(const Value& val) {
             // no extra data
         } else if constexpr (std::is_same_v<T, int>) {
             size += 4;
+        } else if constexpr (std::is_same_v<T, int64_t>) {
+            size += 8;
         } else if constexpr (std::is_same_v<T, float>) {
             size += 4;
         } else if constexpr (std::is_same_v<T, double>) {
@@ -460,14 +496,130 @@ std::size_t serialized_size(const Value& val) {
     return calc_serialized_size(val);
 }
 
+// Helper class to write directly to a pre-allocated buffer
+namespace {
+class DirectByteWriter {
+public:
+    uint8_t* buffer;
+    std::size_t capacity;
+    std::size_t pos = 0;
+    
+    DirectByteWriter(uint8_t* buf, std::size_t cap) : buffer(buf), capacity(cap) {}
+    
+    void write_u8(uint8_t v) {
+        if (pos >= capacity) throw std::runtime_error("Buffer overflow");
+        buffer[pos++] = v;
+    }
+    
+    void write_u32(uint32_t v) {
+        if (pos + 4 > capacity) throw std::runtime_error("Buffer overflow");
+        buffer[pos++] = static_cast<uint8_t>(v & 0xFF);
+        buffer[pos++] = static_cast<uint8_t>((v >> 8) & 0xFF);
+        buffer[pos++] = static_cast<uint8_t>((v >> 16) & 0xFF);
+        buffer[pos++] = static_cast<uint8_t>((v >> 24) & 0xFF);
+    }
+    
+    void write_i32(int32_t v) {
+        write_u32(static_cast<uint32_t>(v));
+    }
+    
+    void write_f32(float v) {
+        uint32_t bits;
+        std::memcpy(&bits, &v, sizeof(bits));
+        write_u32(bits);
+    }
+    
+    void write_f64(double v) {
+        if (pos + 8 > capacity) throw std::runtime_error("Buffer overflow");
+        uint64_t bits;
+        std::memcpy(&bits, &v, sizeof(bits));
+        for (int i = 0; i < 8; ++i) {
+            buffer[pos++] = static_cast<uint8_t>((bits >> (i * 8)) & 0xFF);
+        }
+    }
+    
+    void write_i64(int64_t v) {
+        if (pos + 8 > capacity) throw std::runtime_error("Buffer overflow");
+        uint64_t bits = static_cast<uint64_t>(v);
+        for (int i = 0; i < 8; ++i) {
+            buffer[pos++] = static_cast<uint8_t>((bits >> (i * 8)) & 0xFF);
+        }
+    }
+    
+    void write_string(const std::string& s) {
+        write_u32(static_cast<uint32_t>(s.size()));
+        if (pos + s.size() > capacity) throw std::runtime_error("Buffer overflow");
+        std::memcpy(buffer + pos, s.data(), s.size());
+        pos += s.size();
+    }
+};
+
+void serialize_value_direct(DirectByteWriter& w, const Value& val);
+
+void serialize_value_direct(DirectByteWriter& w, const Value& val) {
+    std::visit([&w](const auto& arg) {
+        using T = std::decay_t<decltype(arg)>;
+        
+        if constexpr (std::is_same_v<T, std::monostate>) {
+            w.write_u8(static_cast<uint8_t>(TypeTag::Null));
+        } else if constexpr (std::is_same_v<T, int>) {
+            w.write_u8(static_cast<uint8_t>(TypeTag::Int));
+            w.write_i32(arg);
+        } else if constexpr (std::is_same_v<T, int64_t>) {
+            w.write_u8(static_cast<uint8_t>(TypeTag::Int64));
+            w.write_i64(arg);
+        } else if constexpr (std::is_same_v<T, float>) {
+            w.write_u8(static_cast<uint8_t>(TypeTag::Float));
+            w.write_f32(arg);
+        } else if constexpr (std::is_same_v<T, double>) {
+            w.write_u8(static_cast<uint8_t>(TypeTag::Double));
+            w.write_f64(arg);
+        } else if constexpr (std::is_same_v<T, bool>) {
+            w.write_u8(static_cast<uint8_t>(TypeTag::Bool));
+            w.write_u8(arg ? 0x01 : 0x00);
+        } else if constexpr (std::is_same_v<T, std::string>) {
+            w.write_u8(static_cast<uint8_t>(TypeTag::String));
+            w.write_string(arg);
+        } else if constexpr (std::is_same_v<T, ValueMap>) {
+            w.write_u8(static_cast<uint8_t>(TypeTag::Map));
+            w.write_u32(static_cast<uint32_t>(arg.size()));
+            for (const auto& [k, v] : arg) {
+                w.write_string(k);
+                serialize_value_direct(w, *v);
+            }
+        } else if constexpr (std::is_same_v<T, ValueVector>) {
+            w.write_u8(static_cast<uint8_t>(TypeTag::Vector));
+            w.write_u32(static_cast<uint32_t>(arg.size()));
+            for (const auto& v : arg) {
+                serialize_value_direct(w, *v);
+            }
+        } else if constexpr (std::is_same_v<T, ValueArray>) {
+            w.write_u8(static_cast<uint8_t>(TypeTag::Array));
+            w.write_u32(static_cast<uint32_t>(arg.size()));
+            for (std::size_t i = 0; i < arg.size(); ++i) {
+                serialize_value_direct(w, *arg[i]);
+            }
+        } else if constexpr (std::is_same_v<T, ValueTable>) {
+            w.write_u8(static_cast<uint8_t>(TypeTag::Table));
+            w.write_u32(static_cast<uint32_t>(arg.size()));
+            for (const auto& entry : arg) {
+                w.write_string(entry.id);
+                serialize_value_direct(w, *entry.value);
+            }
+        }
+    }, val.data);
+}
+} // anonymous namespace
+
 std::size_t serialize_to(const Value& val, uint8_t* buffer, std::size_t buffer_size) {
-    ByteBuffer temp = serialize(val);
-    if (temp.size() > buffer_size) {
-        throw std::runtime_error("Buffer too small: need " + std::to_string(temp.size()) + 
+    std::size_t required = calc_serialized_size(val);
+    if (required > buffer_size) {
+        throw std::runtime_error("Buffer too small: need " + std::to_string(required) + 
                                  " bytes, got " + std::to_string(buffer_size));
     }
-    std::memcpy(buffer, temp.data(), temp.size());
-    return temp.size();
+    DirectByteWriter w(buffer, buffer_size);
+    serialize_value_direct(w, val);
+    return w.pos;
 }
 
 } // namespace immer_lens

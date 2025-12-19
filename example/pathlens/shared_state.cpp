@@ -6,17 +6,9 @@
 
 #include "shared_state.h"
 
-#ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
 #include <windows.h>
-#else
-#include <sys/mman.h>
-#include <sys/stat.h>
-#include <fcntl.h>
-#include <unistd.h>
-#include <semaphore.h>
-#endif
 
 #include <thread>
 #include <mutex>
@@ -54,10 +46,8 @@ struct SharedMemoryHeader {
 static_assert(sizeof(SharedMemoryHeader) == HEADER_SIZE, "Header size mismatch");
 
 // ============================================================
-// Platform-specific shared memory implementation
+// Windows shared memory implementation
 // ============================================================
-
-#ifdef _WIN32
 
 class SharedMemoryRegion {
 public:
@@ -136,81 +126,6 @@ private:
     bool is_creator_;
 };
 
-#else // POSIX
-
-class SharedMemoryRegion {
-public:
-    SharedMemoryRegion(const std::string& name, std::size_t size, bool create)
-        : name_("/" + name)
-        , size_(size)
-        , is_creator_(create)
-    {
-        int flags = create ? (O_CREAT | O_RDWR) : O_RDONLY;
-        fd_ = shm_open(name_.c_str(), flags, 0666);
-        
-        if (fd_ < 0) {
-            std::cerr << "[SharedMemory] Failed to open: " << strerror(errno) << "\n";
-            return;
-        }
-        
-        if (create) {
-            if (ftruncate(fd_, size) < 0) {
-                std::cerr << "[SharedMemory] Failed to resize: " << strerror(errno) << "\n";
-                close(fd_);
-                fd_ = -1;
-                return;
-            }
-        }
-        
-        int prot = create ? (PROT_READ | PROT_WRITE) : PROT_READ;
-        data_ = mmap(nullptr, size, prot, MAP_SHARED, fd_, 0);
-        
-        if (data_ == MAP_FAILED) {
-            std::cerr << "[SharedMemory] Failed to mmap: " << strerror(errno) << "\n";
-            close(fd_);
-            fd_ = -1;
-            data_ = nullptr;
-            return;
-        }
-        
-        // Initialize header if creator
-        if (create) {
-            auto* header = reinterpret_cast<SharedMemoryHeader*>(data_);
-            header->magic = SHARED_MEMORY_MAGIC;
-            header->version = 0;
-            header->timestamp = 0;
-            header->update_type = 0;
-            header->data_size = 0;
-        }
-    }
-    
-    ~SharedMemoryRegion() {
-        if (data_) {
-            munmap(data_, size_);
-        }
-        if (fd_ >= 0) {
-            close(fd_);
-        }
-        if (is_creator_) {
-            shm_unlink(name_.c_str());
-        }
-    }
-    
-    bool is_valid() const noexcept { return data_ != nullptr; }
-    void* data() noexcept { return data_; }
-    const void* data() const noexcept { return data_; }
-    std::size_t size() const noexcept { return size_; }
-    
-private:
-    std::string name_;
-    int fd_ = -1;
-    void* data_ = nullptr;
-    std::size_t size_;
-    bool is_creator_;
-};
-
-#endif
-
 // ============================================================
 // Helper: Get current timestamp in milliseconds
 // ============================================================
@@ -252,11 +167,7 @@ struct StatePublisher::Impl {
         std::memcpy(data_ptr, data.data(), data.size());
         
         // Memory barrier to ensure data is written before header update
-#ifdef _WIN32
         MemoryBarrier();
-#else
-        __sync_synchronize();
-#endif
         
         // Update header atomically
         header->data_size = static_cast<uint32_t>(data.size());
@@ -400,11 +311,7 @@ struct StateSubscriber::Impl {
         uint64_t new_version = header->version;
         
         // Memory barrier before reading data
-#ifdef _WIN32
         MemoryBarrier();
-#else
-        __sync_synchronize();
-#endif
         
         // Copy data (to avoid race conditions)
         ByteBuffer data(data_ptr, data_ptr + data_size);
@@ -540,8 +447,10 @@ bool StateSubscriber::is_valid() const noexcept {
 // Helper: Compare two Values and collect differences
 static void collect_diff_recursive(const Value& old_val, const Value& new_val, 
                                     Path current_path, DiffResult& result) {
-    // Same object (structural sharing) - no diff
-    if (&old_val == &new_val) {
+    // Same value (early exit for identical data)
+    // Note: For Value types, we compare the variant data directly
+    // Structural sharing is detected at the box level in container comparisons below
+    if (old_val.data == new_val.data) {
         return;
     }
     
@@ -846,10 +755,51 @@ static Value set_at_path(const Value& root, const Path& path, const Value& value
     return root;
 }
 
-// Helper to remove value at path (set to null)
+// Helper to erase a key from a map
+static Value erase_key_from_map(const Value& val, const std::string& key) {
+    if (auto* m = val.get_if<ValueMap>()) {
+        return m->erase(key);
+    }
+    return val;
+}
+
+// Helper to remove value at path
+// For maps: actually erases the key
+// For vectors/arrays: sets to null (cannot shrink without reindexing)
 static Value remove_at_path(const Value& root, const Path& path) {
-    // For simplicity, we set to null instead of actually removing
-    // A more sophisticated implementation could shrink containers
+    if (path.empty()) {
+        return Value{};  // Remove entire root
+    }
+    
+    // If last element is a string key, we can erase from map
+    if (path.size() == 1) {
+        if (auto* key = std::get_if<std::string>(&path[0])) {
+            return erase_key_from_map(root, *key);
+        }
+        // For index, set to null (cannot truly remove without reindexing)
+        return set_at_path(root, path, Value{});
+    }
+    
+    // Navigate to parent and erase from there
+    Path parent_path(path.begin(), path.end() - 1);
+    const auto& last = path.back();
+    
+    if (auto* key = std::get_if<std::string>(&last)) {
+        // Get parent, erase key from it, set parent back
+        Value parent = root;
+        for (const auto& elem : parent_path) {
+            if (auto* k = std::get_if<std::string>(&elem)) {
+                parent = parent.at(*k);
+            } else if (auto* idx = std::get_if<std::size_t>(&elem)) {
+                parent = parent.at(*idx);
+            }
+        }
+        
+        Value new_parent = erase_key_from_map(parent, *key);
+        return set_at_path(root, parent_path, new_parent);
+    }
+    
+    // For index removal, set to null
     return set_at_path(root, path, Value{});
 }
 

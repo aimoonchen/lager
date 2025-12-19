@@ -87,15 +87,66 @@ install(TARGETS lager EXPORT LagerConfig)
 
 # requirements for tests and examples
 if (lager_BUILD_TESTS OR lager_BUILD_EXAMPLES)
-  find_package(Boost 1.56 COMPONENTS system REQUIRED)
+  # ============================================================
+  # 依赖库路径配置 - 使用指定路径而非 find_package
+  # ============================================================
+  
+  # Boost - 使用指定路径
+  set(BOOST_ROOT "D:/Github/vcpkg/installed/x64-windows" CACHE PATH "Boost root directory")
+  set(Boost_INCLUDE_DIR "${BOOST_ROOT}/include" CACHE PATH "Boost include directory")
+  set(Boost_LIBRARY_DIR "${BOOST_ROOT}/lib" CACHE PATH "Boost library directory")
+  
+  if(NOT EXISTS "${Boost_INCLUDE_DIR}/boost/version.hpp")
+    message(FATAL_ERROR "Boost not found at ${Boost_INCLUDE_DIR}. Please set Boost_INCLUDE_DIR correctly.")
+  endif()
+  message(STATUS "Using Boost from: ${Boost_INCLUDE_DIR}")
+  
+  # Boost libraries (手动指定，避免 find_package)
+  set(Boost_LIBRARIES "") # Boost header-only 足够大部分用途
+  
+  # immer - 使用指定路径
+  set(IMMER_INCLUDE_DIR "D:/Github/immer" CACHE PATH "Immer include directory")
+  if(NOT EXISTS "${IMMER_INCLUDE_DIR}/immer/vector.hpp")
+    message(FATAL_ERROR "Immer not found at ${IMMER_INCLUDE_DIR}. Please set IMMER_INCLUDE_DIR correctly.")
+  endif()
+  message(STATUS "Using Immer from: ${IMMER_INCLUDE_DIR}")
+  
+  # zug - 使用指定路径
+  set(ZUG_INCLUDE_DIR "D:/Github/zug" CACHE PATH "Zug include directory")
+  if(NOT EXISTS "${ZUG_INCLUDE_DIR}/zug/compose.hpp")
+    message(FATAL_ERROR "Zug not found at ${ZUG_INCLUDE_DIR}. Please set ZUG_INCLUDE_DIR correctly.")
+  endif()
+  message(STATUS "Using Zug from: ${ZUG_INCLUDE_DIR}")
+  
+  # 创建 immer 和 zug 的 interface 目标（如果不存在）
+  if(NOT TARGET immer)
+    add_library(immer INTERFACE)
+    target_include_directories(immer INTERFACE ${IMMER_INCLUDE_DIR})
+  endif()
+  
+  if(NOT TARGET zug)
+    add_library(zug INTERFACE)
+    target_include_directories(zug INTERFACE ${ZUG_INCLUDE_DIR})
+  endif()
+  
   find_package(Threads REQUIRED)
-  find_package(Immer REQUIRED)
-  find_package(Zug REQUIRED)
 endif()
 
 # the library, local development target
 if(lager_BUILD_TESTS)
-  find_package(Catch2 REQUIRED)
+  # Catch2 - 使用指定路径
+  set(CATCH2_INCLUDE_DIR "D:/Github/vcpkg/installed/x64-windows/include" CACHE PATH "Catch2 include directory")
+  if(NOT EXISTS "${CATCH2_INCLUDE_DIR}/catch2/catch_all.hpp" AND NOT EXISTS "${CATCH2_INCLUDE_DIR}/catch.hpp")
+    message(FATAL_ERROR "Catch2 not found at ${CATCH2_INCLUDE_DIR}. Please set CATCH2_INCLUDE_DIR correctly.")
+  endif()
+  message(STATUS "Using Catch2 from: ${CATCH2_INCLUDE_DIR}")
+  
+  # 创建 Catch2 interface 目标（如果不存在）
+  if(NOT TARGET Catch2::Catch2)
+    add_library(Catch2 INTERFACE)
+    add_library(Catch2::Catch2 ALIAS Catch2)
+    target_include_directories(Catch2 INTERFACE ${CATCH2_INCLUDE_DIR})
+  endif()
 
   add_library(lager-dev INTERFACE)
   target_include_directories(lager-dev SYSTEM INTERFACE
@@ -134,20 +185,29 @@ if (lager_BUILD_EXAMPLES)
   target_include_directories(lager-example INTERFACE
      $<BUILD_INTERFACE:${lager_BINARY_DIR}/>
      $<BUILD_INTERFACE:${lager_SOURCE_DIR}/>
-     $<INSTALL_INTERFACE:include>
     ${Boost_INCLUDE_DIR}
+    ${IMMER_INCLUDE_DIR}
+    ${ZUG_INCLUDE_DIR}
   )
   target_link_libraries(lager-example INTERFACE
     lager
-    immer
     ${CMAKE_THREAD_LIBS_INIT}
     ${Boost_LIBRARIES}
   )
 
-  install(TARGETS lager-example EXPORT LagerConfig)
+  # 注意: lager-example 不导出，因为它依赖本地配置的路径
+  # install(TARGETS lager-example EXPORT LagerConfig)
 
   # examples with the http debugger
   if (lager_BUILD_DEBUGGER_EXAMPLES)
+    # 创建 Boost::system 目标（如果不存在）
+    if(NOT TARGET Boost::system)
+      add_library(Boost_system INTERFACE)
+      add_library(Boost::system ALIAS Boost_system)
+      target_include_directories(Boost_system INTERFACE ${Boost_INCLUDE_DIR})
+      # Boost system 在新版本中是 header-only
+    endif()
+    
     add_library(lager-debugger-example INTERFACE)
     target_link_libraries(lager-debugger-example INTERFACE
       lager-example
@@ -160,7 +220,8 @@ if (lager_BUILD_EXAMPLES)
         COMMENT "Build debugger web UI")
     endif()
 
-    install(TARGETS lager-debugger-example  EXPORT LagerConfig)
+    # 注意: lager-debugger-example 不导出
+    # install(TARGETS lager-debugger-example EXPORT LagerConfig)
 
     install(FILES
       resources/gui/gui.js

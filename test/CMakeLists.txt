@@ -2,10 +2,10 @@
 #  Utils
 #  =====
 
-find_package(Qt5Core)
-find_package(Qt5Concurrent)
-find_package(Qt5Qml)
-find_package(Qt5Quick)
+# Qt5 路径配置
+set(Qt5_DIR "D:/QT/5.15.2/msvc2019_64/lib/cmake/Qt5" CACHE PATH "Qt5 cmake directory")
+
+find_package(Qt5 COMPONENTS Core Concurrent Qml Quick QUIET)
 
 function(lager_target_name_for out_target out_file file)
   get_filename_component(_extension ${_file} EXT)

@@ -20,6 +20,7 @@
 #include "static_path.h"
 #include "diff_collector.h"
 #include "shared_state.h"
+#include "editor_engine.h"
 
 #include <lager/store.hpp>
 #include <lager/event_loop/manual.hpp>
@@ -188,6 +189,10 @@ int main()
         std::cout << "C. Demo RecursiveDiffCollector\n";
         std::cout << "\n=== Cross-Process ===\n";
         std::cout << "P. Demo Shared State (Publisher/Subscriber)\n";
+        std::cout << "\n=== Editor-Engine Demo ===\n";
+        std::cout << "G. Demo Editor-Engine (Full Flow)\n";
+        std::cout << "H. Demo Property Editing\n";
+        std::cout << "I. Demo Undo/Redo\n";
         std::cout << "\nQ. Quit\n";
         std::cout << "\nChoice: ";
 
@@ -256,6 +261,18 @@ int main()
         case 'P':
         case 'p':
             demo_shared_state();
+            break;
+        case 'G':
+        case 'g':
+            demo_editor_engine();
+            break;
+        case 'H':
+        case 'h':
+            demo_property_editing();
+            break;
+        case 'I':
+        case 'i':
+            demo_undo_redo();
             break;
         case 'Q':
         case 'q':

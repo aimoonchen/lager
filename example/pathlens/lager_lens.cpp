@@ -106,6 +106,23 @@ LagerValueLens lager_index_lens(std::size_t index)
     return index_lens(index);
 }
 
+// Helper: Convert a PathElement to a lens
+namespace {
+inline LagerValueLens path_element_to_lens(const PathElement& elem)
+{
+    return std::visit(
+        [](const auto& value) -> LagerValueLens {
+            using T = std::decay_t<decltype(value)>;
+            if constexpr (std::is_same_v<T, std::string>) {
+                return lager_key_lens(value);
+            } else {
+                return lager_index_lens(value);
+            }
+        },
+        elem);
+}
+} // namespace
+
 // Build lens from path using lager::lens<Value, Value>
 // 
 // Note: We use zug::comp() instead of operator| because:
@@ -120,32 +137,11 @@ LagerValueLens lager_path_lens(const Path& path)
     }
     
     // Build the first lens from the first path element
-    LagerValueLens result = std::visit(
-        [](const auto& value) -> LagerValueLens {
-            using T = std::decay_t<decltype(value)>;
-            if constexpr (std::is_same_v<T, std::string>) {
-                return lager_key_lens(value);
-            } else {
-                return lager_index_lens(value);
-            }
-        },
-        path[0]);
+    LagerValueLens result = path_element_to_lens(path[0]);
     
     // Compose with remaining path elements
-    for (size_t i = 1; i < path.size(); ++i) {
-        LagerValueLens next = std::visit(
-            [](const auto& value) -> LagerValueLens {
-                using T = std::decay_t<decltype(value)>;
-                if constexpr (std::is_same_v<T, std::string>) {
-                    return lager_key_lens(value);
-                } else {
-                    return lager_index_lens(value);
-                }
-            },
-            path[i]);
-        
-        // Use zug::comp() to avoid ADL issues with operator|
-        result = zug::comp(result, next);
+    for (std::size_t i = 1; i < path.size(); ++i) {
+        result = zug::comp(result, path_element_to_lens(path[i]));
     }
     
     return result;

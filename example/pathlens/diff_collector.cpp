@@ -160,7 +160,9 @@ void RecursiveDiffCollector::diff_vector(const ValueVector& old_vec, const Value
     }
 }
 
-void RecursiveDiffCollector::collect_removed(const Value& val, Path current_path)
+// Helper: Recursively collect entries for add/remove operations
+// is_add: true for added entries, false for removed entries
+void RecursiveDiffCollector::collect_entries(const Value& val, Path current_path, bool is_add)
 {
     std::visit([&](const auto& arg) {
         using T = std::decay_t<decltype(arg)>;
@@ -168,46 +170,36 @@ void RecursiveDiffCollector::collect_removed(const Value& val, Path current_path
             for (const auto& [k, v] : arg) {
                 Path child_path = current_path;
                 child_path.push_back(k);
-                collect_removed(*v, child_path);
+                collect_entries(*v, child_path, is_add);
             }
         }
         else if constexpr (std::is_same_v<T, ValueVector>) {
             for (size_t i = 0; i < arg.size(); ++i) {
                 Path child_path = current_path;
                 child_path.push_back(i);
-                collect_removed(*arg[i], child_path);
+                collect_entries(*arg[i], child_path, is_add);
             }
         }
         else if constexpr (!std::is_same_v<T, std::monostate>) {
-            diffs_.push_back({DiffEntry::Type::Remove, current_path,
-                              value_to_string(val), ""});
+            if (is_add) {
+                diffs_.push_back({DiffEntry::Type::Add, current_path,
+                                  "", value_to_string(val)});
+            } else {
+                diffs_.push_back({DiffEntry::Type::Remove, current_path,
+                                  value_to_string(val), ""});
+            }
         }
     }, val.data);
 }
 
+void RecursiveDiffCollector::collect_removed(const Value& val, Path current_path)
+{
+    collect_entries(val, current_path, false);
+}
+
 void RecursiveDiffCollector::collect_added(const Value& val, Path current_path)
 {
-    std::visit([&](const auto& arg) {
-        using T = std::decay_t<decltype(arg)>;
-        if constexpr (std::is_same_v<T, ValueMap>) {
-            for (const auto& [k, v] : arg) {
-                Path child_path = current_path;
-                child_path.push_back(k);
-                collect_added(*v, child_path);
-            }
-        }
-        else if constexpr (std::is_same_v<T, ValueVector>) {
-            for (size_t i = 0; i < arg.size(); ++i) {
-                Path child_path = current_path;
-                child_path.push_back(i);
-                collect_added(*arg[i], child_path);
-            }
-        }
-        else if constexpr (!std::is_same_v<T, std::monostate>) {
-            diffs_.push_back({DiffEntry::Type::Add, current_path,
-                              "", value_to_string(val)});
-        }
-    }, val.data);
+    collect_entries(val, current_path, true);
 }
 
 // ============================================================

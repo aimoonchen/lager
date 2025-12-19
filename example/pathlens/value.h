@@ -19,7 +19,9 @@
 #include <immer/table.hpp>
 #include <immer/vector.hpp>
 
+#include <cstdint>
 #include <iostream>
+#include <optional>
 #include <string>
 #include <variant>
 #include <vector>
@@ -181,6 +183,7 @@ struct BasicValue
     using table_entry   = BasicTableEntry<MemoryPolicy>;
 
     std::variant<int,
+                 int64_t,
                  float,
                  double,
                  bool,
@@ -195,6 +198,7 @@ struct BasicValue
     // Constructors
     BasicValue() : data(std::monostate{}) {}
     BasicValue(int v) : data(v) {}
+    BasicValue(int64_t v) : data(v) {}
     BasicValue(float v) : data(v) {}
     BasicValue(double v) : data(v) {}
     BasicValue(bool v) : data(v) {}
@@ -273,6 +277,63 @@ struct BasicValue
         return BasicValue{};
     }
     
+    // ============================================================
+    // Optional access methods - distinguish "not found" from "value is null"
+    // ============================================================
+    
+    // Try to access by string key, returns std::nullopt if not found
+    std::optional<BasicValue> try_at(const std::string& key) const
+    {
+        // Try map
+        if (auto* m = get_if<value_map>()) {
+            if (auto* found = m->find(key)) {
+                return found->get();
+            }
+        }
+        // Try table
+        if (auto* t = get_if<value_table>()) {
+            if (auto* found = t->find(key)) {
+                return found->value.get();
+            }
+        }
+        return std::nullopt;
+    }
+    
+    // Try to access by index, returns std::nullopt if out of range
+    std::optional<BasicValue> try_at(std::size_t index) const
+    {
+        // Try vector
+        if (auto* v = get_if<value_vector>()) {
+            if (index < v->size()) {
+                return (*v)[index].get();
+            }
+        }
+        // Try array
+        if (auto* a = get_if<value_array>()) {
+            if (index < a->size()) {
+                return (*a)[index].get();
+            }
+        }
+        return std::nullopt;
+    }
+    
+    // Check if key/index exists
+    bool contains(const std::string& key) const
+    {
+        return count(key) > 0;
+    }
+    
+    bool contains(std::size_t index) const
+    {
+        if (auto* v = get_if<value_vector>()) {
+            return index < v->size();
+        }
+        if (auto* a = get_if<value_array>()) {
+            return index < a->size();
+        }
+        return false;
+    }
+    
     // Immutable set by string key
     BasicValue set(const std::string& key, BasicValue val) const
     {
@@ -316,10 +377,10 @@ struct BasicValue
         // Try array
         if (auto* a = get_if<value_array>()) {
             if (index < a->size()) {
-                // immer::array doesn't have set(), use transient
-                auto t = a->transient();
-                t.set(index, value_box{std::move(val)});
-                return t.persistent();
+                // immer::array 使用 update() 方法来修改元素
+                return a->update(index, [&val](const value_box&) {
+                    return value_box{std::move(val)};
+                });
             }
         }
         
@@ -366,6 +427,10 @@ struct BasicValue
 // Default Value type (uses default_memory_policy)
 // This is the primary type for most use cases and ensures
 // backward compatibility with existing code.
+// 
+// Note: default_memory_policy is THREAD-SAFE:
+//   - Uses atomic reference counting
+//   - Uses spinlock for free list synchronization
 // ============================================================
 using Value = BasicValue<immer::default_memory_policy>;
 
@@ -376,6 +441,52 @@ using ValueVector = BasicValueVector<immer::default_memory_policy>;
 using ValueArray  = BasicValueArray<immer::default_memory_policy>;
 using ValueTable  = BasicValueTable<immer::default_memory_policy>;
 using TableEntry  = BasicTableEntry<immer::default_memory_policy>;
+
+// ============================================================
+// Single-threaded optimized Value type (LocalValue)
+// 
+// For applications that don't share Value across threads,
+// this provides better performance by avoiding:
+//   - Atomic operations for reference counting
+//   - Lock acquisition for free list access
+//
+// Performance difference can be significant (10-30%) for
+// workloads with many small modifications.
+//
+// 类型命名说明：
+//   - Value       : 通用版本（线程安全）
+//   - LocalValue  : 单线程高性能版本（本类型）
+//   - SharedValue : 跨进程共享版本（见 shared_value.h）
+//
+// WARNING: Using LocalValue in multi-threaded scenarios
+// will cause data races and undefined behavior!
+// ============================================================
+
+// Single-threaded memory policy (local/non-shared)
+using local_memory_policy = immer::memory_policy<
+    immer::unsafe_free_list_heap_policy<immer::cpp_heap>,  // 非线程安全空闲链表
+    immer::unsafe_refcount_policy,                          // 非原子引用计数
+    immer::no_lock_policy                                   // 无锁
+>;
+
+// Single-threaded Value types (LocalValue family)
+using LocalValue       = BasicValue<local_memory_policy>;
+using LocalValueBox    = BasicValueBox<local_memory_policy>;
+using LocalValueMap    = BasicValueMap<local_memory_policy>;
+using LocalValueVector = BasicValueVector<local_memory_policy>;
+using LocalValueArray  = BasicValueArray<local_memory_policy>;
+using LocalValueTable  = BasicValueTable<local_memory_policy>;
+using LocalTableEntry  = BasicTableEntry<local_memory_policy>;
+
+// Backward compatibility aliases (deprecated, use LocalValue instead)
+using unsafe_memory_policy = local_memory_policy;
+using UnsafeValue       = LocalValue;
+using UnsafeValueBox    = LocalValueBox;
+using UnsafeValueMap    = LocalValueMap;
+using UnsafeValueVector = LocalValueVector;
+using UnsafeValueArray  = LocalValueArray;
+using UnsafeValueTable  = LocalValueTable;
+using UnsafeTableEntry  = LocalTableEntry;
 
 // ============================================================
 // BasicValue equality comparison

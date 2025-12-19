@@ -1,4 +1,3 @@
-
 add_custom_target(examples COMMENT "Build all examples")
 if (lager_BUILD_TESTS)
   add_dependencies(check examples)
@@ -12,18 +11,11 @@ add_executable(counter-std EXCLUDE_FROM_ALL
 target_link_libraries(counter-std lager-example)
 add_dependencies(examples counter-std)
 
-add_executable(pathlens EXCLUDE_FROM_ALL
-  pathlens/main.cpp
-  pathlens/value.cpp
-  pathlens/erased_lens.cpp
-  pathlens/lager_lens.cpp
-  pathlens/at_lens.cpp
-  pathlens/json_pointer.cpp
-  pathlens/static_path.cpp
-  pathlens/diff_collector.cpp
-  )
-target_link_libraries(pathlens lager-example)
-add_dependencies(examples pathlens)
+# ============================================================
+# pathlens 子项目
+# 包含: pathlens (库), PathLensTest, Editor, Engine
+# ============================================================
+add_subdirectory(pathlens)
 
 # ncurses examples
 # ================
@@ -116,14 +108,13 @@ endif()
 # qt examples
 # ===========
 
-find_package(Qt5Core)
-find_package(Qt5Concurrent)
-find_package(Qt5Qml)
-find_package(Qt5Gui)
-find_package(Qt5Widgets)
-find_package(Qt5QuickControls2)
+# Qt5 路径配置
+set(Qt5_DIR "D:/QT/5.15.2/msvc2019_64/lib/cmake/Qt5" CACHE PATH "Qt5 cmake directory")
 
-find_package(Boost 1.56)
+find_package(Qt5 COMPONENTS Core Concurrent Qml Gui Widgets QuickControls2 QUIET)
+
+# Boost 已在根 CMakeLists.txt 中配置，这里只检查变量是否存在
+set(Boost_FOUND TRUE)
 
 if (Qt5Core_FOUND AND Qt5Concurrent_FOUND AND Qt5Gui_FOUND AND Qt5Widgets_FOUND AND Qt5Qml_FOUND AND Qt5QuickControls2_FOUND AND Boost_FOUND)
   add_executable(todo-qml EXCLUDE_FROM_ALL
@@ -155,6 +146,7 @@ if (Qt5Core_FOUND AND Qt5Concurrent_FOUND AND Qt5Gui_FOUND AND Qt5Widgets_FOUND 
   target_compile_definitions(snake-qml PRIVATE
     LAGER_SNAKE_QML_DIR="${CMAKE_CURRENT_SOURCE_DIR}/snake/qml")
   add_dependencies(examples snake-qml)
+
 else()
   message(STATUS "Disabling Qt based examples")
 endif()
