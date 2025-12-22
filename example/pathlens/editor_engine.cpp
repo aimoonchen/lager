@@ -87,12 +87,12 @@ EditorModel editor_update(EditorModel model, EditorAction action) {
                 return model;
             }
             
-            // Save current state for undo
-            model.undo_stack.push_back(model.scene);
+            // Save current state for undo - flex_vector has O(1) push_back and drop(1)
+            model.undo_stack = model.undo_stack.push_back(model.scene);
             if (model.undo_stack.size() > EditorModel::max_history) {
-                model.undo_stack.erase(model.undo_stack.begin());
+                model.undo_stack = model.undo_stack.drop(1);  // O(1) drop from front
             }
-            model.redo_stack.clear();
+            model.redo_stack = immer::flex_vector<SceneState>{};  // Clear redo stack
             
             // Update property
             Path path = parse_property_path(act.property_path);
@@ -115,12 +115,12 @@ EditorModel editor_update(EditorModel model, EditorAction action) {
                 return model;
             }
             
-            // Save current state for undo
-            model.undo_stack.push_back(model.scene);
+            // Save current state for undo - flex_vector has O(1) push_back and drop(1)
+            model.undo_stack = model.undo_stack.push_back(model.scene);
             if (model.undo_stack.size() > EditorModel::max_history) {
-                model.undo_stack.erase(model.undo_stack.begin());
+                model.undo_stack = model.undo_stack.drop(1);  // O(1) drop from front
             }
-            model.redo_stack.clear();
+            model.redo_stack = immer::flex_vector<SceneState>{};  // Clear redo stack
             
             // Update all properties
             SceneObject updated_obj = it->second;
@@ -139,12 +139,12 @@ EditorModel editor_update(EditorModel model, EditorAction action) {
                 return model;
             }
             
-            // Save current state for redo
-            model.redo_stack.push_back(model.scene);
+            // Save current state for redo - flex_vector has O(1) push_back
+            model.redo_stack = model.redo_stack.push_back(model.scene);
             
-            // Restore previous state
+            // Restore previous state - flex_vector has O(1) back() and take()
             model.scene = model.undo_stack.back();
-            model.undo_stack.pop_back();
+            model.undo_stack = model.undo_stack.take(model.undo_stack.size() - 1);  // pop_back equivalent
             model.dirty = true;
             
             return model;
@@ -155,11 +155,11 @@ EditorModel editor_update(EditorModel model, EditorAction action) {
             }
             
             // Save current state for undo
-            model.undo_stack.push_back(model.scene);
+            model.undo_stack = model.undo_stack.push_back(model.scene);
             
             // Restore next state
             model.scene = model.redo_stack.back();
-            model.redo_stack.pop_back();
+            model.redo_stack = model.redo_stack.take(model.redo_stack.size() - 1);  // pop_back equivalent
             model.dirty = true;
             
             return model;
@@ -167,16 +167,16 @@ EditorModel editor_update(EditorModel model, EditorAction action) {
         else if constexpr (std::is_same_v<T, actions::SyncFromEngine>) {
             // Full sync from engine (replaces current state)
             model.scene = act.new_state;
-            model.undo_stack.clear();
-            model.redo_stack.clear();
+            model.undo_stack = immer::flex_vector<SceneState>{};  // Clear
+            model.redo_stack = immer::flex_vector<SceneState>{};  // Clear
             model.dirty = false;
             
             return model;
         }
         else if constexpr (std::is_same_v<T, actions::AddObject>) {
             // Save for undo
-            model.undo_stack.push_back(model.scene);
-            model.redo_stack.clear();
+            model.undo_stack = model.undo_stack.push_back(model.scene);
+            model.redo_stack = immer::flex_vector<SceneState>{};  // Clear redo stack
             
             // Add the object
             model.scene.objects[act.object.id] = act.object;
@@ -201,8 +201,8 @@ EditorModel editor_update(EditorModel model, EditorAction action) {
             }
             
             // Save for undo
-            model.undo_stack.push_back(model.scene);
-            model.redo_stack.clear();
+            model.undo_stack = model.undo_stack.push_back(model.scene);
+            model.redo_stack = immer::flex_vector<SceneState>{};  // Clear redo stack
             
             // Remove from parent's children list
             for (auto& [id, obj] : model.scene.objects) {
@@ -518,8 +518,8 @@ EditorController::~EditorController() = default;
 
 void EditorController::initialize(const SceneState& initial_state) {
     impl_->model.scene = initial_state;
-    impl_->model.undo_stack.clear();
-    impl_->model.redo_stack.clear();
+    impl_->model.undo_stack = immer::flex_vector<SceneState>{};  // Clear
+    impl_->model.redo_stack = immer::flex_vector<SceneState>{};  // Clear
     impl_->model.dirty = false;
     impl_->previous_state_value = Impl::scene_to_value(initial_state);
 }
@@ -562,28 +562,12 @@ const SceneObject* EditorController::get_selected_object() const {
     return &it->second;
 }
 
-std::optional<Value> EditorController::get_property(const std::string& path) const {
+Value EditorController::get_property(const std::string& path) const {
     const SceneObject* obj = get_selected_object();
-    if (!obj) return std::nullopt;
+    if (!obj) return Value{};  // null Value indicates no object selected
     
     Path parsed_path = parse_property_path(path);
-    Value result = get_value_at_path(obj->data, parsed_path);
-    
-    // Check if we got a valid value (not null unless explicitly null)
-    if (result.is_null() && !parsed_path.empty()) {
-        // Try to check if the path exists
-        Value parent = obj->data;
-        for (size_t i = 0; i < parsed_path.size() - 1; ++i) {
-            if (auto* key = std::get_if<std::string>(&parsed_path[i])) {
-                parent = parent.at(*key);
-            }
-        }
-        if (parent.is_null()) {
-            return std::nullopt;
-        }
-    }
-    
-    return result;
+    return get_value_at_path(obj->data, parsed_path);
 }
 
 void EditorController::set_property(const std::string& path, Value value) {
@@ -645,8 +629,7 @@ std::vector<PropertyBinding> generate_property_bindings(
         // Create getter closure
         std::string path = prop.name;
         binding.getter = [&controller, path]() -> Value {
-            auto val = controller.get_property(path);
-            return val.value_or(Value{});
+            return controller.get_property(path);
         };
         
         // Create setter closure
@@ -776,8 +759,8 @@ void demo_editor_engine() {
     
     selected = editor.get_selected_object();
     if (selected) {
-        auto color = editor.get_property("color");
-        std::cout << "Color after undo: " << value_to_string(color.value_or(Value{})) << "\n";
+        Value color = editor.get_property("color");
+        std::cout << "Color after undo: " << value_to_string(color) << "\n";
     }
     
     std::cout << "\nPerforming REDO...\n";
@@ -785,8 +768,8 @@ void demo_editor_engine() {
     
     selected = editor.get_selected_object();
     if (selected) {
-        auto color = editor.get_property("color");
-        std::cout << "Color after redo: " << value_to_string(color.value_or(Value{})) << "\n";
+        Value color = editor.get_property("color");
+        std::cout << "Color after redo: " << value_to_string(color) << "\n";
     }
     
     // ===== Step 8: Switch to Different Object =====
@@ -843,13 +826,13 @@ void demo_property_editing() {
     }
     
     std::cout << "Editing: " << camera->id << "\n";
-    std::cout << "Initial position.y: " << value_to_string(editor.get_property("position.y").value_or(Value{})) << "\n";
+    std::cout << "Initial position.y: " << value_to_string(editor.get_property("position.y")) << "\n";
     
     // Simulate UI editing - change position Y
     std::cout << "\nSimulating slider change: position.y -> 10.0\n";
     editor.set_property("position.y", Value{10.0});
     
-    std::cout << "New position.y: " << value_to_string(editor.get_property("position.y").value_or(Value{})) << "\n";
+    std::cout << "New position.y: " << value_to_string(editor.get_property("position.y")) << "\n";
     
     // Batch update
     std::cout << "\nSimulating batch update (drag 3D gizmo):\n";
@@ -860,9 +843,9 @@ void demo_property_editing() {
     }});
     
     std::cout << "New position: ("
-              << value_to_string(editor.get_property("position.x").value_or(Value{})) << ", "
-              << value_to_string(editor.get_property("position.y").value_or(Value{})) << ", "
-              << value_to_string(editor.get_property("position.z").value_or(Value{})) << ")\n";
+              << value_to_string(editor.get_property("position.x")) << ", "
+              << value_to_string(editor.get_property("position.y")) << ", "
+              << value_to_string(editor.get_property("position.z")) << ")\n";
     
     std::cout << "\n=== Demo End ===\n\n";
 }
@@ -889,7 +872,7 @@ void demo_undo_redo() {
     editor.dispatch(actions::SelectObject{"light_sun"});
     
     std::cout << "Initial intensity: " 
-              << value_to_string(editor.get_property("intensity").value_or(Value{})) << "\n";
+              << value_to_string(editor.get_property("intensity")) << "\n";
     
     // Make several changes
     std::cout << "\n--- Making changes ---\n";
@@ -904,7 +887,7 @@ void demo_undo_redo() {
     editor.set_property("intensity", Value{4.0});
     
     std::cout << "\nCurrent intensity: " 
-              << value_to_string(editor.get_property("intensity").value_or(Value{})) << "\n";
+              << value_to_string(editor.get_property("intensity")) << "\n";
     std::cout << "Undo stack size: " << editor.get_model().undo_stack.size() << "\n";
     std::cout << "Redo stack size: " << editor.get_model().redo_stack.size() << "\n";
     
@@ -913,7 +896,7 @@ void demo_undo_redo() {
     while (editor.can_undo()) {
         editor.undo();
         std::cout << "After undo: intensity = " 
-                  << value_to_string(editor.get_property("intensity").value_or(Value{})) << "\n";
+                  << value_to_string(editor.get_property("intensity")) << "\n";
     }
     
     // Redo all changes
@@ -921,7 +904,7 @@ void demo_undo_redo() {
     while (editor.can_redo()) {
         editor.redo();
         std::cout << "After redo: intensity = " 
-                  << value_to_string(editor.get_property("intensity").value_or(Value{})) << "\n";
+                  << value_to_string(editor.get_property("intensity")) << "\n";
     }
     
     std::cout << "\n=== Demo End ===\n\n";

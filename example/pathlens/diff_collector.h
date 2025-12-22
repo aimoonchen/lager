@@ -1,7 +1,10 @@
-// diff_collector.h
-// Recursive diff collector for detecting changes between Value states
-//
-// Uses immer's structural sharing for efficient O(1) unchanged subtree skipping.
+// Copyright (c) 2024 chenmou. All rights reserved.
+// Licensed under the MIT License. See LICENSE file in the project root.
+
+/// @file diff_collector.h
+/// @brief Recursive diff collector for detecting changes between Value states.
+///
+/// Uses immer's structural sharing for efficient O(1) unchanged subtree skipping.
 
 #pragma once
 
@@ -48,13 +51,13 @@ public:
     void diff(const Value& old_val, const Value& new_val);
 
     // Access results
-    const std::vector<DiffEntry>& get_diffs() const;
+    [[nodiscard]] const std::vector<DiffEntry>& get_diffs() const;
     
     // Clear collected diffs
     void clear();
     
     // Check if there are any changes
-    bool has_changes() const;
+    [[nodiscard]] bool has_changes() const;
 
     // Print diffs to stdout
     void print_diffs() const;

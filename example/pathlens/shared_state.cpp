@@ -1,20 +1,23 @@
 // shared_state.cpp
 // Implementation of cross-process state sharing
 //
-// This implementation uses Windows shared memory (CreateFileMapping/MapViewOfFile)
-// For cross-platform support, consider using Boost.Interprocess
+// This implementation uses Boost.Interprocess for cross-platform shared memory
 
 #include "shared_state.h"
 
-#define WIN32_LEAN_AND_MEAN
-#define NOMINMAX
-#include <windows.h>
+#include <boost/interprocess/shared_memory_object.hpp>
+#include <boost/interprocess/mapped_region.hpp>
+#include <boost/interprocess/creation_tags.hpp>
+#include <boost/interprocess/sync/named_semaphore.hpp>
 
+#include <chrono>
 #include <thread>
 #include <mutex>
 #include <condition_variable>
 #include <cstring>
 #include <iostream>
+
+namespace bip = boost::interprocess;
 
 namespace immer_lens {
 
@@ -46,7 +49,7 @@ struct SharedMemoryHeader {
 static_assert(sizeof(SharedMemoryHeader) == HEADER_SIZE, "Header size mismatch");
 
 // ============================================================
-// Windows shared memory implementation
+// Boost.Interprocess shared memory implementation
 // ============================================================
 
 class SharedMemoryRegion {
@@ -54,77 +57,126 @@ public:
     SharedMemoryRegion(const std::string& name, std::size_t size, bool create)
         : size_(size)
         , is_creator_(create)
+        , name_(name)
     {
-        std::wstring wide_name(name.begin(), name.end());
-        wide_name = L"Local\\" + wide_name;
-        
-        if (create) {
-            handle_ = CreateFileMappingW(
-                INVALID_HANDLE_VALUE,
-                nullptr,
-                PAGE_READWRITE,
-                static_cast<DWORD>(size >> 32),
-                static_cast<DWORD>(size & 0xFFFFFFFF),
-                wide_name.c_str()
-            );
-        } else {
-            handle_ = OpenFileMappingW(
-                FILE_MAP_READ,
-                FALSE,
-                wide_name.c_str()
-            );
-        }
-        
-        if (!handle_) {
+        try {
+            if (create) {
+                // Remove any existing shared memory with the same name
+                bip::shared_memory_object::remove(name.c_str());
+                
+                // Create new shared memory object
+                shm_ = std::make_unique<bip::shared_memory_object>(
+                    bip::create_only,
+                    name.c_str(),
+                    bip::read_write
+                );
+                
+                // Set size
+                shm_->truncate(static_cast<bip::offset_t>(size));
+                
+                // Map the entire region with read/write access
+                region_ = std::make_unique<bip::mapped_region>(
+                    *shm_,
+                    bip::read_write
+                );
+                
+                // Initialize header
+                auto* header = reinterpret_cast<SharedMemoryHeader*>(region_->get_address());
+                header->magic = SHARED_MEMORY_MAGIC;
+                header->version = 0;
+                header->timestamp = 0;
+                header->update_type = 0;
+                header->data_size = 0;
+            } else {
+                // Open existing shared memory object (read-only for subscriber)
+                shm_ = std::make_unique<bip::shared_memory_object>(
+                    bip::open_only,
+                    name.c_str(),
+                    bip::read_only
+                );
+                
+                // Map the region with read-only access
+                region_ = std::make_unique<bip::mapped_region>(
+                    *shm_,
+                    bip::read_only
+                );
+            }
+        } catch (const bip::interprocess_exception& e) {
             std::cerr << "[SharedMemory] Failed to " << (create ? "create" : "open") 
-                      << " shared memory: " << GetLastError() << "\n";
-            return;
-        }
-        
-        data_ = MapViewOfFile(
-            handle_,
-            create ? FILE_MAP_ALL_ACCESS : FILE_MAP_READ,
-            0, 0, size
-        );
-        
-        if (!data_) {
-            std::cerr << "[SharedMemory] Failed to map view: " << GetLastError() << "\n";
-            CloseHandle(handle_);
-            handle_ = nullptr;
-            return;
-        }
-        
-        // Initialize header if creator
-        if (create) {
-            auto* header = reinterpret_cast<SharedMemoryHeader*>(data_);
-            header->magic = SHARED_MEMORY_MAGIC;
-            header->version = 0;
-            header->timestamp = 0;
-            header->update_type = 0;
-            header->data_size = 0;
+                      << " shared memory '" << name << "': " << e.what() << "\n";
+            shm_.reset();
+            region_.reset();
         }
     }
     
     ~SharedMemoryRegion() {
-        if (data_) {
-            UnmapViewOfFile(data_);
-        }
-        if (handle_) {
-            CloseHandle(handle_);
+        // Unmap and close happen automatically via unique_ptr
+        region_.reset();
+        shm_.reset();
+        
+        // If we created the shared memory, remove it on destruction
+        if (is_creator_ && !name_.empty()) {
+            bip::shared_memory_object::remove(name_.c_str());
         }
     }
     
-    bool is_valid() const noexcept { return data_ != nullptr; }
-    void* data() noexcept { return data_; }
-    const void* data() const noexcept { return data_; }
-    std::size_t size() const noexcept { return size_; }
+    // Non-copyable
+    SharedMemoryRegion(const SharedMemoryRegion&) = delete;
+    SharedMemoryRegion& operator=(const SharedMemoryRegion&) = delete;
+    
+    // Movable
+    SharedMemoryRegion(SharedMemoryRegion&& other) noexcept
+        : shm_(std::move(other.shm_))
+        , region_(std::move(other.region_))
+        , size_(other.size_)
+        , is_creator_(other.is_creator_)
+        , name_(std::move(other.name_))
+    {
+        other.size_ = 0;
+        other.is_creator_ = false;
+    }
+    
+    SharedMemoryRegion& operator=(SharedMemoryRegion&& other) noexcept {
+        if (this != &other) {
+            // Clean up current resources
+            region_.reset();
+            if (is_creator_ && !name_.empty()) {
+                bip::shared_memory_object::remove(name_.c_str());
+            }
+            shm_.reset();
+            
+            // Move from other
+            shm_ = std::move(other.shm_);
+            region_ = std::move(other.region_);
+            size_ = other.size_;
+            is_creator_ = other.is_creator_;
+            name_ = std::move(other.name_);
+            
+            other.size_ = 0;
+            other.is_creator_ = false;
+        }
+        return *this;
+    }
+    
+    bool is_valid() const noexcept { return region_ != nullptr && region_->get_address() != nullptr; }
+    void* data() noexcept { return region_ ? region_->get_address() : nullptr; }
+    const void* data() const noexcept { return region_ ? region_->get_address() : nullptr; }
+    std::size_t size() const noexcept { return region_ ? region_->get_size() : 0; }
     
 private:
-    HANDLE handle_ = nullptr;
-    void* data_ = nullptr;
+    std::unique_ptr<bip::shared_memory_object> shm_;
+    std::unique_ptr<bip::mapped_region> region_;
     std::size_t size_;
     bool is_creator_;
+    std::string name_;
 };
+
+// ============================================================
+// Cross-platform memory barrier
+// ============================================================
+static inline void memory_barrier() {
+    std::atomic_thread_fence(std::memory_order_seq_cst);
+}
 
 // ============================================================
 // Helper: Get current timestamp in milliseconds
@@ -136,6 +188,13 @@ static uint64_t current_timestamp_ms() {
 }
 
 // ============================================================
+// Helper: Generate semaphore name from shared memory name
+// ============================================================
+static std::string semaphore_name_for(const std::string& shm_name) {
+    return shm_name + "_notify";
+}
+
+// ============================================================
 // StatePublisher Implementation
 // ============================================================
 
@@ -144,11 +203,34 @@ struct StatePublisher::Impl {
     SharedMemoryConfig config;
     Stats stats;
     Value last_state;
+    std::unique_ptr<bip::named_semaphore> notify_sem;
+    std::string sem_name;
     
     Impl(const SharedMemoryConfig& cfg)
         : shm(cfg.name, cfg.size, true)
         , config(cfg)
-    {}
+        , sem_name(semaphore_name_for(cfg.name))
+    {
+        // Remove and create semaphore for notification
+        try {
+            bip::named_semaphore::remove(sem_name.c_str());
+            notify_sem = std::make_unique<bip::named_semaphore>(
+                bip::create_only,
+                sem_name.c_str(),
+                0  // Initial count = 0 (no updates pending)
+            );
+        } catch (const bip::interprocess_exception& e) {
+            std::cerr << "[StatePublisher] Failed to create semaphore: " << e.what() << "\n";
+        }
+    }
+    
+    ~Impl() {
+        // Clean up semaphore
+        if (notify_sem) {
+            notify_sem.reset();
+            bip::named_semaphore::remove(sem_name.c_str());
+        }
+    }
     
     void write_update(StateUpdate::Type type, const ByteBuffer& data) {
         if (!shm.is_valid()) return;
@@ -166,14 +248,23 @@ struct StatePublisher::Impl {
         uint8_t* data_ptr = reinterpret_cast<uint8_t*>(shm.data()) + HEADER_SIZE;
         std::memcpy(data_ptr, data.data(), data.size());
         
-        // Memory barrier to ensure data is written before header update
-        MemoryBarrier();
-        
-        // Update header atomically
+        // Update header metadata fields (before version update)
         header->data_size = static_cast<uint32_t>(data.size());
         header->update_type = static_cast<uint8_t>(type);
         header->timestamp = current_timestamp_ms();
+        
+        // Memory barrier to ensure all data and metadata are visible
+        // before updating version (which acts as the "publish gate")
+        memory_barrier();
+        
+        // Version update is the "publish gate" - readers check this first,
+        // so it must be updated AFTER all other writes are visible
         header->version++;
+        
+        // Signal subscribers that an update is available
+        if (notify_sem) {
+            notify_sem->post();
+        }
         
         // Update stats
         stats.total_publishes++;
@@ -191,7 +282,15 @@ StatePublisher::StatePublisher(const SharedMemoryConfig& config)
     : impl_(std::make_unique<Impl>(config))
 {}
 
-StatePublisher::~StatePublisher() = default;
+StatePublisher::~StatePublisher() {
+    close();
+}
+
+void StatePublisher::close() noexcept {
+    if (impl_) {
+        impl_.reset();
+    }
+}
 
 StatePublisher::StatePublisher(StatePublisher&&) noexcept = default;
 StatePublisher& StatePublisher::operator=(StatePublisher&&) noexcept = default;
@@ -266,19 +365,48 @@ struct StateSubscriber::Impl {
     std::mutex callback_mutex;
     
     std::atomic<bool> polling{false};
+    std::atomic<bool> use_semaphore_wait{true};  // Prefer semaphore-based waiting
     std::thread poll_thread;
+    
+    // Named semaphore for efficient event-driven updates
+    std::unique_ptr<bip::named_semaphore> notify_sem;
+    std::string sem_name;
     
     Impl(const SharedMemoryConfig& cfg)
         : shm(cfg.name, cfg.size, false)  // Open existing, don't create
         , config(cfg)
-    {}
+        , sem_name(semaphore_name_for(cfg.name))
+    {
+        // Try to open existing semaphore (created by publisher)
+        try {
+            notify_sem = std::make_unique<bip::named_semaphore>(
+                bip::open_only,
+                sem_name.c_str()
+            );
+        } catch (const bip::interprocess_exception& e) {
+            // Semaphore not available - fallback to polling
+            std::cerr << "[StateSubscriber] Semaphore not available, using polling: " 
+                      << e.what() << "\n";
+            use_semaphore_wait = false;
+        }
+    }
     
     ~Impl() {
         stop_polling();
+        // Don't remove semaphore - publisher owns it
+        notify_sem.reset();
     }
     
     void stop_polling() {
         polling = false;
+        // If using semaphore wait, post to unblock waiting thread
+        if (notify_sem && use_semaphore_wait) {
+            try {
+                notify_sem->post();  // Wake up waiting thread
+            } catch (...) {
+                // Ignore errors during shutdown
+            }
+        }
         if (poll_thread.joinable()) {
             poll_thread.join();
         }
@@ -311,7 +439,7 @@ struct StateSubscriber::Impl {
         uint64_t new_version = header->version;
         
         // Memory barrier before reading data
-        MemoryBarrier();
+        memory_barrier();
         
         // Copy data (to avoid race conditions)
         ByteBuffer data(data_ptr, data_ptr + data_size);
@@ -380,14 +508,42 @@ bool StateSubscriber::poll() {
     return false;
 }
 
-std::optional<Value> StateSubscriber::try_get_update() {
+Value StateSubscriber::try_get_update() {
     if (poll()) {
         return impl_->current_state;
     }
-    return std::nullopt;
+    return Value{};  // null Value indicates no update available
 }
 
 Value StateSubscriber::wait_for_update(std::chrono::milliseconds timeout) {
+    // Use semaphore-based waiting if available (more efficient, no CPU burn)
+    if (impl_->notify_sem && impl_->use_semaphore_wait) {
+        // First check if there's already an update available
+        if (poll()) {
+            return impl_->current_state;
+        }
+        
+        // Wait on semaphore for notification
+        bool acquired = false;
+        if (timeout.count() > 0) {
+            // Timed wait using standard C++ chrono
+            // Boost.Interprocess's timed_wait accepts std::chrono::time_point directly
+            auto deadline = std::chrono::system_clock::now() + timeout;
+            acquired = impl_->notify_sem->timed_wait(deadline);
+        } else {
+            // Infinite wait
+            impl_->notify_sem->wait();
+            acquired = true;
+        }
+        
+        // After waking up, poll for the actual update
+        if (acquired) {
+            poll();
+        }
+        return impl_->current_state;
+    }
+    
+    // Fallback to polling-based waiting
     auto start = std::chrono::steady_clock::now();
     
     while (true) {
@@ -418,8 +574,23 @@ void StateSubscriber::start_polling() {
     impl_->polling = true;
     impl_->poll_thread = std::thread([this]() {
         while (impl_->polling) {
-            poll();
-            std::this_thread::sleep_for(impl_->config.poll_interval);
+            // Use semaphore-based waiting if available (more efficient)
+            if (impl_->notify_sem && impl_->use_semaphore_wait) {
+                // Wait on semaphore with timeout to allow checking polling flag
+                // Using standard C++ chrono for portable time handling
+                auto deadline = std::chrono::system_clock::now() + impl_->config.poll_interval;
+                if (impl_->notify_sem->timed_wait(deadline)) {
+                    // Semaphore acquired - process update
+                    if (impl_->polling) {
+                        poll();
+                    }
+                }
+                // On timeout or after processing, continue loop to check polling flag
+            } else {
+                // Fallback to polling-based waiting
+                poll();
+                std::this_thread::sleep_for(impl_->config.poll_interval);
+            }
         }
     });
 }
@@ -471,7 +642,9 @@ static void collect_diff_recursive(const Value& old_val, const Value& new_val,
             
             if (auto* old_box = old_map->find(key)) {
                 // Key exists in both - check if same box (structural sharing)
-                if (&(*old_box) != &new_box) {
+                // Use .get() to compare immer::box internal pointers for O(1) identity check
+                // This is the correct way to detect structural sharing in immer::box
+                if (old_box->get() != new_box.get()) {
                     collect_diff_recursive(old_box->get(), new_box.get(), child_path, result);
                 }
             } else {
@@ -502,8 +675,10 @@ static void collect_diff_recursive(const Value& old_val, const Value& new_val,
             const auto& old_box = (*old_vec)[i];
             const auto& new_box = (*new_vec)[i];
             
-            // Check if same box (structural sharing)
-            if (&old_box != &new_box) {
+            // Check if same box (structural sharing) using .get() for O(1) identity check
+            // Note: Use .get() for pointer comparison, not address of box itself
+            // This detects immer's structural sharing correctly
+            if (old_box.get() != new_box.get()) {
                 Path child_path = current_path;
                 child_path.push_back(i);
                 collect_diff_recursive(old_box.get(), new_box.get(), child_path, result);
@@ -536,7 +711,8 @@ static void collect_diff_recursive(const Value& old_val, const Value& new_val,
             const auto& old_box = (*old_arr)[i];
             const auto& new_box = (*new_arr)[i];
             
-            if (&old_box != &new_box) {
+            // Check if same box (structural sharing) using .get() for O(1) identity check
+            if (old_box.get() != new_box.get()) {
                 Path child_path = current_path;
                 child_path.push_back(i);
                 collect_diff_recursive(old_box.get(), new_box.get(), child_path, result);

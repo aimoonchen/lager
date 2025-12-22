@@ -1,16 +1,18 @@
-// static_path.h
-// Compile-time static path lens implementation
-//
-// This file provides a zero-overhead abstraction for path-based lens access
-// when the data structure is known at compile time (e.g., from C++ reflection).
-//
-// Key features:
-// - Paths are constructed at compile time
-// - Lens composition is resolved at compile time
-// - Zero runtime overhead for path construction
-// - Type-safe path definitions
-//
-// C++17 compatible with optional C++20 enhancements
+// Copyright (c) 2024 chenmou. All rights reserved.
+// Licensed under the MIT License. See LICENSE file in the project root.
+
+/// @file static_path.h
+/// @brief Compile-time static path lens implementation (C++20).
+///
+/// This file provides a zero-overhead abstraction for path-based lens access
+/// when the data structure is known at compile time (e.g., from C++ reflection).
+///
+/// Key features:
+/// - Paths are constructed at compile time
+/// - Lens composition is resolved at compile time
+/// - Zero runtime overhead for path construction
+/// - Type-safe path definitions
+/// - JSON Pointer style path syntax support
 
 #pragma once
 
@@ -18,6 +20,7 @@
 #include <lager/lenses.hpp>
 #include <zug/compose.hpp>
 
+#include <algorithm>
 #include <array>
 #include <string_view>
 #include <type_traits>
@@ -27,15 +30,7 @@ namespace immer_lens {
 namespace static_path {
 
 // ============================================================
-// Fixed-size string for non-type template parameters (C++17)
-// 
-// Note: Using class types as non-type template parameters (NTTP)
-// requires C++20 for full standard compliance. However, many
-// compilers (GCC 9+, Clang 12+, MSVC 19.26+) support this as
-// an extension in C++17 mode.
-// 
-// If compilation fails, ensure you're using C++17 or later,
-// or switch to the STATIC_KEY/STATIC_IDX macros for compatibility.
+// Fixed-size string for non-type template parameters (C++20 NTTP)
 // ============================================================
 
 template<std::size_t N>
@@ -45,20 +40,24 @@ struct FixedString {
     constexpr FixedString() = default;
     
     constexpr FixedString(const char (&str)[N]) {
-        for (std::size_t i = 0; i < N; ++i) {
-            data[i] = str[i];
-        }
+        std::copy_n(str, N, data);
     }
     
     constexpr std::size_t size() const noexcept { return N - 1; }
-    
     constexpr const char* c_str() const noexcept { return data; }
+    constexpr std::string_view view() const noexcept { return {data, N - 1}; }
+    constexpr operator std::string_view() const noexcept { return view(); }
+    std::string to_string() const { return std::string{view()}; }
     
-    constexpr operator std::string_view() const noexcept { 
-        return std::string_view{data, N - 1}; 
+    // Comparison operators for compile-time path comparison
+    template<std::size_t M>
+    constexpr bool operator==(const FixedString<M>& other) const noexcept {
+        return view() == other.view();
     }
     
-    std::string to_string() const { return std::string{data, N - 1}; }
+    constexpr bool operator==(std::string_view sv) const noexcept {
+        return view() == sv;
+    }
 };
 
 // Deduction guide
@@ -320,7 +319,7 @@ struct PathRegistry {
 };
 
 // ============================================================
-// JSON Pointer Style Static Path (C++20)
+// JSON Pointer Style Static Path
 // 
 // Allows defining paths using JSON Pointer syntax:
 //   JsonPointerPath<"/users/0/name">
@@ -329,55 +328,30 @@ struct PathRegistry {
 //   StaticPath<K<"users">, I<0>, K<"name">>
 // ============================================================
 
-#if __cplusplus >= 202002L || (defined(_MSVC_LANG) && _MSVC_LANG >= 202002L)
-
 namespace detail {
 
-// Compile-time string view for parsing
-struct ConstexprStringView {
-    const char* ptr;
-    std::size_t len;
-    
-    constexpr ConstexprStringView(const char* p, std::size_t l) : ptr(p), len(l) {}
-    
-    constexpr char operator[](std::size_t i) const { return ptr[i]; }
-    constexpr std::size_t size() const { return len; }
-    constexpr bool empty() const { return len == 0; }
-    
-    constexpr ConstexprStringView substr(std::size_t pos, std::size_t count = static_cast<std::size_t>(-1)) const {
-        if (pos >= len) return {ptr + len, 0};
-        std::size_t actual = (count > len - pos) ? (len - pos) : count;
-        return {ptr + pos, actual};
+// Helper: check if string_view contains only digits
+constexpr bool is_number(std::string_view sv) noexcept {
+    if (sv.empty()) return false;
+    for (char c : sv) {
+        if (c < '0' || c > '9') return false;
     }
-    
-    constexpr std::size_t find(char c, std::size_t start = 0) const {
-        for (std::size_t i = start; i < len; ++i) {
-            if (ptr[i] == c) return i;
-        }
-        return static_cast<std::size_t>(-1);
+    return true;
+}
+
+// Helper: convert string_view to number
+constexpr std::size_t to_number(std::string_view sv) noexcept {
+    std::size_t result = 0;
+    for (char c : sv) {
+        result = result * 10 + (c - '0');
     }
-    
-    constexpr bool is_number() const {
-        if (len == 0) return false;
-        for (std::size_t i = 0; i < len; ++i) {
-            if (ptr[i] < '0' || ptr[i] > '9') return false;
-        }
-        return true;
-    }
-    
-    constexpr std::size_t to_number() const {
-        std::size_t result = 0;
-        for (std::size_t i = 0; i < len; ++i) {
-            result = result * 10 + (ptr[i] - '0');
-        }
-        return result;
-    }
-};
+    return result;
+}
 
 // Count segments in a JSON Pointer
 template<FixedString Ptr>
 constexpr std::size_t count_segments() {
-    ConstexprStringView sv(Ptr.data, Ptr.size());
+    std::string_view sv = Ptr.view();
     if (sv.empty()) return 0;
     
     std::size_t start = (sv[0] == '/') ? 1 : 0;
@@ -387,16 +361,16 @@ constexpr std::size_t count_segments() {
     while (start < sv.size()) {
         ++count;
         auto next = sv.find('/', start);
-        if (next == static_cast<std::size_t>(-1)) break;
+        if (next == std::string_view::npos) break;
         start = next + 1;
     }
     return count;
 }
 
-// Extract segment at index
+// Extract segment at index as string_view
 template<FixedString Ptr, std::size_t Index>
-constexpr auto get_segment() {
-    ConstexprStringView sv(Ptr.data, Ptr.size());
+constexpr std::string_view get_segment() {
+    std::string_view sv = Ptr.view();
     std::size_t start = (sv[0] == '/') ? 1 : 0;
     
     std::size_t current = 0;
@@ -407,7 +381,7 @@ constexpr auto get_segment() {
     }
     
     auto end = sv.find('/', start);
-    if (end == static_cast<std::size_t>(-1)) end = sv.size();
+    if (end == std::string_view::npos) end = sv.size();
     
     return sv.substr(start, end - start);
 }
@@ -415,45 +389,29 @@ constexpr auto get_segment() {
 // Check if segment is a number
 template<FixedString Ptr, std::size_t Index>
 constexpr bool is_index_segment() {
-    auto seg = get_segment<Ptr, Index>();
-    return seg.is_number();
+    return is_number(get_segment<Ptr, Index>());
 }
 
 // Get segment as number
 template<FixedString Ptr, std::size_t Index>
 constexpr std::size_t get_index_value() {
-    auto seg = get_segment<Ptr, Index>();
-    return seg.to_number();
+    return to_number(get_segment<Ptr, Index>());
 }
-
-// Helper to extract a segment as FixedString at compile time
-template<std::size_t N>
-struct SegmentExtractor {
-    char data[N + 1]{};
-    
-    constexpr SegmentExtractor(const char* src, std::size_t len) {
-        for (std::size_t i = 0; i < N && i < len; ++i) {
-            data[i] = src[i];
-        }
-        data[N] = '\0';
-    }
-};
 
 // Get segment length at compile time
 template<FixedString Ptr, std::size_t Index>
 constexpr std::size_t get_segment_length() {
-    auto seg = get_segment<Ptr, Index>();
-    return seg.size();
+    return get_segment<Ptr, Index>().size();
 }
 
-// Build FixedString from segment - using a struct to capture the string
+// Build FixedString from segment
 template<FixedString Ptr, std::size_t Index, std::size_t Len>
 struct SegmentString {
     static constexpr auto make() {
         constexpr auto seg = get_segment<Ptr, Index>();
         FixedString<Len + 1> result{};
         for (std::size_t i = 0; i < Len; ++i) {
-            result.data[i] = seg.ptr[i];
+            result.data[i] = seg[i];
         }
         result.data[Len] = '\0';
         return result;
@@ -470,10 +428,10 @@ constexpr auto make_segment_string() {
 // Build segment type at index
 template<FixedString Ptr, std::size_t Index>
 struct SegmentTypeAt {
-    static constexpr bool is_index = is_index_segment<Ptr, Index>();
+    static constexpr bool is_idx = is_index_segment<Ptr, Index>();
     
     using type = std::conditional_t<
-        is_index,
+        is_idx,
         IndexSeg<get_index_value<Ptr, Index>()>,
         KeySeg<make_segment_string<Ptr, Index>()>
     >;
@@ -496,8 +454,6 @@ using JsonPointerPath = typename detail::BuildPath<
     Ptr, 
     std::make_index_sequence<detail::count_segments<Ptr>()>
 >::type;
-
-#endif // C++20
 
 } // namespace static_path
 

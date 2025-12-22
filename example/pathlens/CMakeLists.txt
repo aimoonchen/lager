@@ -1,55 +1,49 @@
-
 # pathlens/CMakeLists.txt
-# PathLens 项目的 CMake 配置
+# CMake configuration for the PathLens project
 #
-# 该目录包含以下子项目：
-# 1. pathlens (静态库) - 核心功能库
-# 2. Editor (可执行文件) - 编辑器进程 (A进程)，支持 QML 和 Widgets 两种模式
-# 3. Engine (可执行文件) - 引擎进程 (B进程)
-# 4. PathLensTest (可执行文件) - 测试程序
+# This directory contains the following sub-projects:
+# 1. pathlens (static library) - Core functionality library
+# 2. Editor (executable) - Editor process (Process A), supports both QML and Widgets modes
+# 3. Engine (executable) - Engine process (Process B)
+# 4. PathLensTest (executable) - Test program
 
 cmake_minimum_required(VERSION 3.16)
 
 # ============================================================
-# 依赖库路径配置
+# Dependency Path Configuration - Using third_party directory
 # ============================================================
 
-# Boost
-set(BOOST_ROOT "D:/Github/vcpkg/installed/x64-windows" CACHE PATH "Boost root directory")
-set(Boost_INCLUDE_DIR "${BOOST_ROOT}/include" CACHE PATH "Boost include directory")
-set(Boost_LIBRARY_DIR "${BOOST_ROOT}/lib" CACHE PATH "Boost library directory")
-
-# immer
-set(IMMER_INCLUDE_DIR "D:/Github/immer" CACHE PATH "Immer include directory")
-
-# zug
-set(ZUG_INCLUDE_DIR "D:/Github/zug" CACHE PATH "Zug include directory")
-
-# lager (父项目目录)
+# lager (parent project directory)
 set(LAGER_INCLUDE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../.." CACHE PATH "Lager include directory")
 
-# Qt5
+# Boost - Using third_party directory (header-only)
+# Includes: Hana, Intrusive, Interprocess and their dependencies
+set(Boost_INCLUDE_DIR "${LAGER_INCLUDE_DIR}/third_party/boost" CACHE PATH "Boost include directory")
+
+# immer - Using third_party submodule
+set(IMMER_INCLUDE_DIR "${LAGER_INCLUDE_DIR}/third_party/immer" CACHE PATH "Immer include directory")
+
+# zug - Using third_party submodule
+set(ZUG_INCLUDE_DIR "${LAGER_INCLUDE_DIR}/third_party/zug" CACHE PATH "Zug include directory")
+
 set(Qt5_DIR "D:/QT/5.15.2/msvc2019_64/lib/cmake/Qt5" CACHE PATH "Qt5 cmake directory")
 
-# SDL2 (可选)
 set(SDL2_DIR "D:/Github/vcpkg/installed/x64-windows/share/sdl2" CACHE PATH "SDL2 cmake directory")
 
 # ============================================================
-# 查找依赖
+# Find Dependencies
 # ============================================================
 
-# Qt5 组件
 find_package(Qt5 COMPONENTS Core Concurrent Gui Widgets Qml QuickControls2 QUIET)
 
-# Boost - 直接使用指定路径，不使用 find_package
-# find_package(Boost 1.56 REQUIRED)  # 禁用，改用手动指定路径
+# Boost - Use specified path directly, not find_package
 if(NOT EXISTS "${Boost_INCLUDE_DIR}/boost/version.hpp")
     message(FATAL_ERROR "Boost not found at ${Boost_INCLUDE_DIR}. Please set Boost_INCLUDE_DIR correctly.")
 endif()
 message(STATUS "Using Boost from: ${Boost_INCLUDE_DIR}")
 
 # ============================================================
-# pathlens 静态库
+# pathlens Static Library
 # ============================================================
 
 set(PATHLENS_LIB_SOURCES
@@ -84,25 +78,33 @@ target_include_directories(pathlens PUBLIC
     ${LAGER_INCLUDE_DIR}
 )
 
-# 第三方库使用 SYSTEM 标记，抑制其内部警告
+# Third-party libraries use SYSTEM flag to suppress their internal warnings
 target_include_directories(pathlens SYSTEM PUBLIC
     ${IMMER_INCLUDE_DIR}
     ${ZUG_INCLUDE_DIR}
     ${Boost_INCLUDE_DIR}
 )
 
+# Compiler macro definitions
+target_compile_definitions(pathlens PUBLIC
+    # zug uses std::variant instead of Boost.Variant
+    ZUG_VARIANT_STD
+    # Boost.Interprocess needs this macro to avoid linking date_time library
+    BOOST_DATE_TIME_NO_LIB
+)
+
 target_compile_features(pathlens PUBLIC cxx_std_20)
 
 if(MSVC)
-    # /utf-8: 源文件和执行字符集都使用 UTF-8
-    # /W3: 警告级别 3
-    # /Zc:preprocessor: 使用符合标准的预处理器
-    # /bigobj: 支持大对象文件
+    # /utf-8: Use UTF-8 for source and execution character sets
+    # /W3: Warning level 3
+    # /Zc:preprocessor: Use standards-conforming preprocessor
+    # /bigobj: Support large object files
     target_compile_options(pathlens PRIVATE /W3 /Zc:preprocessor /bigobj /utf-8)
 endif()
 
 # ============================================================
-# PathLensTest 可执行文件 (测试程序)
+# PathLensTest Executable (Test Program)
 # ============================================================
 
 add_executable(PathLensTest main.cpp)
@@ -114,10 +116,10 @@ if(MSVC)
 endif()
 
 # ============================================================
-# Engine 可执行文件 (B进程 - 引擎)
+# Engine Executable (Process B - Engine)
 # ============================================================
 
-# Engine 使用 shared_value_demo.cpp 作为主程序
+# Engine uses shared_value_demo.cpp as main program
 add_executable(Engine shared_value_demo.cpp)
 
 target_link_libraries(Engine PRIVATE pathlens)
@@ -127,12 +129,11 @@ if(MSVC)
 endif()
 
 # ============================================================
-# Editor 可执行文件 (A进程 - 编辑器)
-# 支持 QML 和 Widgets 两种模式，通过 EDITOR_USE_QML 宏开关
+# Editor Executable (Process A - Editor)
+# Supports both QML and Widgets modes via EDITOR_USE_QML macro
 # ============================================================
 
 if(Qt5_FOUND)
-    # Editor 主程序源文件
     add_executable(Editor editor_main.cpp)
     
     set_target_properties(Editor PROPERTIES AUTOMOC ON)
@@ -145,7 +146,7 @@ if(Qt5_FOUND)
         Qt5::Widgets
     )
     
-    # QML 支持（如果 Qml 和 QuickControls2 可用）
+    # QML support (if Qml and QuickControls2 are available)
     if(Qt5Qml_FOUND AND Qt5QuickControls2_FOUND)
         target_link_libraries(Editor PRIVATE
             Qt5::Qml 
@@ -154,7 +155,6 @@ if(Qt5_FOUND)
         target_compile_definitions(Editor PRIVATE EDITOR_HAS_QML=1)
     endif()
     
-    # 定义 QML 文件目录
     target_compile_definitions(Editor PRIVATE
         LAGER_PATHLENS_QML_DIR="${CMAKE_CURRENT_SOURCE_DIR}/qml"
     )
@@ -173,8 +173,8 @@ else()
     message(STATUS "Editor target skipped: Qt5 not found")
 endif()
 
-# 注意: Engine 可执行文件已经包含了 SharedValue 功能演示
-# 如果需要单独的 Demo，可以取消下面的注释
+# Note: Engine executable already includes SharedValue demo functionality
+# Uncomment below if a separate demo is needed
 # 
 # if(WIN32)
 #     add_executable(SharedValueDemo shared_value_demo.cpp)
@@ -185,7 +185,7 @@ endif()
 # endif()
 
 # ============================================================
-# 添加到 examples 目标 (如果存在)
+# Add to examples target (if exists)
 # ============================================================
 
 if(TARGET examples)
@@ -196,7 +196,7 @@ if(TARGET examples)
 endif()
 
 # ============================================================
-# 输出配置信息
+# Output Configuration Information
 # ============================================================
 
 message(STATUS "")

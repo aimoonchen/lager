@@ -1,3 +1,9 @@
 [submodule "tools/sinusoidal-sphinx-theme"]
 	path = tools/sinusoidal-sphinx-theme
 	url = https://github.com/arximboldi/sinusoidal-sphinx-theme.git
+[submodule "third_party/immer"]
+	path = third_party/immer
+	url = https://github.com/aimoonchen/immer.git
+[submodule "third_party/zug"]
+	path = third_party/zug
+	url = https://github.com/aimoonchen/zug.git

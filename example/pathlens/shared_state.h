@@ -1,18 +1,21 @@
-// shared_state.h
-// Cross-process state sharing for lager/immer applications
-//
-// This module provides StatePublisher and StateSubscriber for sharing
-// immer-based state across process boundaries using shared memory.
-//
-// Architecture:
-// - Main process owns the lager store and maintains full immer structure sharing
-// - Child processes receive serialized state updates via shared memory
-// - Supports both full state and incremental (diff) updates
-//
-// Thread Safety:
-// - StatePublisher is NOT thread-safe (use from single thread)
-// - StateSubscriber is thread-safe for reading
-// - Cross-process synchronization uses platform-specific primitives
+// Copyright (c) 2024 chenmou. All rights reserved.
+// Licensed under the MIT License. See LICENSE file in the project root.
+
+/// @file shared_state.h
+/// @brief Cross-process state sharing for lager/immer applications.
+///
+/// This module provides StatePublisher and StateSubscriber for sharing
+/// immer-based state across process boundaries using shared memory.
+///
+/// Architecture:
+/// - Main process owns the lager store and maintains full immer structure sharing
+/// - Child processes receive serialized state updates via shared memory
+/// - Supports both full state and incremental (diff) updates
+///
+/// Thread Safety:
+/// - StatePublisher is NOT thread-safe (use from single thread)
+/// - StateSubscriber is thread-safe for reading
+/// - Cross-process synchronization uses platform-specific primitives
 
 #pragma once
 
@@ -88,7 +91,7 @@ public:
     void publish_full(const Value& state);
     
     // Get current version number
-    uint64_t version() const noexcept;
+    [[nodiscard]] uint64_t version() const noexcept;
     
     // Get statistics
     struct Stats {
@@ -98,10 +101,14 @@ public:
         std::size_t total_bytes_written = 0;
         std::size_t last_update_size = 0;
     };
-    Stats stats() const noexcept;
+    [[nodiscard]] Stats stats() const noexcept;
     
     // Check if shared memory is valid
-    bool is_valid() const noexcept;
+    [[nodiscard]] bool is_valid() const noexcept;
+    
+    // Explicitly release shared memory resources
+    // Useful for graceful shutdown before process exit
+    void close() noexcept;
     
 private:
     struct Impl;
@@ -134,23 +141,23 @@ public:
     StateSubscriber& operator=(StateSubscriber&&) noexcept;
     
     // Get current state (returns cached state, does not wait)
-    const Value& current() const noexcept;
+    [[nodiscard]] const Value& current() const noexcept;
     
     // Get current version
-    uint64_t version() const noexcept;
+    [[nodiscard]] uint64_t version() const noexcept;
     
     // Check for updates (non-blocking)
     // Returns true if state was updated
     bool poll();
     
     // Try to get update without blocking
-    // Returns nullopt if no update available
-    std::optional<Value> try_get_update();
+    // Returns null Value if no update available
+    [[nodiscard]] Value try_get_update();
     
     // Wait for next update (blocking)
     // Returns the new state
     // timeout: max time to wait (0 = infinite)
-    Value wait_for_update(std::chrono::milliseconds timeout = std::chrono::milliseconds{0});
+    [[nodiscard]] Value wait_for_update(std::chrono::milliseconds timeout = std::chrono::milliseconds{0});
     
     // Register callback for state updates
     // Callback is invoked when poll() detects an update
@@ -165,7 +172,7 @@ public:
     void stop_polling();
     
     // Check if polling is active
-    bool is_polling() const noexcept;
+    [[nodiscard]] bool is_polling() const noexcept;
     
     // Get statistics
     struct Stats {
@@ -175,10 +182,10 @@ public:
         std::size_t total_bytes_read = 0;
         uint64_t missed_updates = 0;  // Updates that were overwritten before reading
     };
-    Stats stats() const noexcept;
+    [[nodiscard]] Stats stats() const noexcept;
     
     // Check if shared memory is valid
-    bool is_valid() const noexcept;
+    [[nodiscard]] bool is_valid() const noexcept;
 
 private:
     struct Impl;
@@ -202,7 +209,7 @@ struct DiffResult {
     std::vector<std::pair<Path, Value>> removed;  // path -> old value (optional)
     std::vector<ModifiedEntry> modified;           // path + old/new values
     
-    bool empty() const {
+    [[nodiscard]] bool empty() const {
         return added.empty() && removed.empty() && modified.empty();
     }
 };

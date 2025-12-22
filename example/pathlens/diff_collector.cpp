@@ -60,7 +60,7 @@ void RecursiveDiffCollector::print_diffs() const
 void RecursiveDiffCollector::diff_value(const Value& old_val, const Value& new_val, Path current_path)
 {
     // Fast path: if types differ, record as Change
-    if (old_val.data.index() != new_val.data.index()) {
+    if (old_val.data.index() != new_val.data.index()) [[unlikely]] {
         diffs_.push_back({DiffEntry::Type::Change, current_path, 
                           value_to_string(old_val), value_to_string(new_val)});
         return;
@@ -110,7 +110,7 @@ void RecursiveDiffCollector::diff_map(const ValueMap& old_map, const ValueMap& n
         [&](const std::pair<const std::string, ValueBox>& old_kv,
             const std::pair<const std::string, ValueBox>& new_kv) {
             // Optimization: pointer comparison - O(1)
-            if (old_kv.second.get() == new_kv.second.get()) {
+            if (old_kv.second.get() == new_kv.second.get()) [[likely]] {
                 return; // Same pointer, unchanged
             }
             Path child_path = current_path;
@@ -136,7 +136,7 @@ void RecursiveDiffCollector::diff_vector(const ValueVector& old_vec, const Value
         // Optimization: immer::box pointer comparison - O(1)
         // Note: Use .get() for pointer comparison, not operator==
         // operator== compares content, .get() compares addresses
-        if (old_box.get() == new_box.get()) {
+        if (old_box.get() == new_box.get()) [[likely]] {
             continue;
         }
         

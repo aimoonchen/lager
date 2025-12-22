@@ -7,15 +7,37 @@
 
 #include "value.h"
 
-// transient 头文件（反序列化时使用 transient 进行批量构造）
+// Transient headers (for batch construction during deserialization)
 #include <immer/map_transient.hpp>
 #include <immer/vector_transient.hpp>
 #include <immer/table_transient.hpp>
 
 #include <cstring>  // for std::memcpy
 #include <stdexcept>  // for std::runtime_error
+#include <sstream>    // for std::ostringstream
+#include <iomanip>    // for std::setprecision
 
 namespace immer_lens {
+
+// ============================================================
+// Helper: format float array as string
+// ============================================================
+namespace {
+
+template<std::size_t N>
+std::string format_float_array(const std::array<float, N>& arr, const char* name) {
+    std::ostringstream oss;
+    oss << name << "(";
+    oss << std::setprecision(4);
+    for (std::size_t i = 0; i < N; ++i) {
+        if (i > 0) oss << ", ";
+        oss << arr[i];
+    }
+    oss << ")";
+    return oss.str();
+}
+
+} // anonymous namespace
 
 // ============================================================
 // Utility functions (for default Value type)
@@ -37,6 +59,18 @@ std::string value_to_string(const Value& val)
             return std::to_string(arg) + "f";
         } else if constexpr (std::is_same_v<T, double>) {
             return std::to_string(arg);
+        } else if constexpr (std::is_same_v<T, Vec2>) {
+            return format_float_array(arg, "vec2");
+        } else if constexpr (std::is_same_v<T, Vec3>) {
+            return format_float_array(arg, "vec3");
+        } else if constexpr (std::is_same_v<T, Vec4>) {
+            return format_float_array(arg, "vec4");
+        } else if constexpr (std::is_same_v<T, Mat3>) {
+            return format_float_array(arg, "mat3");
+        } else if constexpr (std::is_same_v<T, Mat4x3>) {
+            return format_float_array(arg, "mat4x3");
+        } else if constexpr (std::is_same_v<T, Mat4>) {
+            return format_float_array(arg, "mat4");
         } else if constexpr (std::is_same_v<T, ValueMap>) {
             return "{map:" + std::to_string(arg.size()) + "}";
         } else if constexpr (std::is_same_v<T, ValueVector>) {
@@ -67,6 +101,24 @@ void print_value(const Value& val, const std::string& prefix, std::size_t depth)
                                  std::is_same_v<T, float> ||
                                  std::is_same_v<T, double>) {
                 std::cout << std::string(depth * 2, ' ') << prefix << arg << "\n";
+            } else if constexpr (std::is_same_v<T, Vec2>) {
+                std::cout << std::string(depth * 2, ' ') << prefix 
+                          << format_float_array(arg, "vec2") << "\n";
+            } else if constexpr (std::is_same_v<T, Vec3>) {
+                std::cout << std::string(depth * 2, ' ') << prefix 
+                          << format_float_array(arg, "vec3") << "\n";
+            } else if constexpr (std::is_same_v<T, Vec4>) {
+                std::cout << std::string(depth * 2, ' ') << prefix 
+                          << format_float_array(arg, "vec4") << "\n";
+            } else if constexpr (std::is_same_v<T, Mat3>) {
+                std::cout << std::string(depth * 2, ' ') << prefix 
+                          << format_float_array(arg, "mat3") << "\n";
+            } else if constexpr (std::is_same_v<T, Mat4x3>) {
+                std::cout << std::string(depth * 2, ' ') << prefix 
+                          << format_float_array(arg, "mat4x3") << "\n";
+            } else if constexpr (std::is_same_v<T, Mat4>) {
+                std::cout << std::string(depth * 2, ' ') << prefix 
+                          << format_float_array(arg, "mat4") << "\n";
             } else if constexpr (std::is_same_v<T, ValueMap>) {
                 for (const auto& [k, v] : arg) {
                     std::cout << std::string(depth * 2, ' ') << prefix << k << ":\n";
@@ -165,7 +217,14 @@ enum class TypeTag : uint8_t {
     Vector = 0x07,
     Array  = 0x08,
     Table  = 0x09,
-    Int64  = 0x0A,  // New: 64-bit integer
+    Int64  = 0x0A,
+    // Math types (0x10 - 0x15)
+    Vec2   = 0x10,
+    Vec3   = 0x11,
+    Vec4   = 0x12,
+    Mat3   = 0x13,
+    Mat4x3 = 0x14,
+    Mat4   = 0x15,
 };
 
 // Helper: write bytes to buffer
@@ -215,6 +274,13 @@ public:
         write_u32(static_cast<uint32_t>(s.size()));
         for (char c : s) {
             buffer.push_back(static_cast<uint8_t>(c));
+        }
+    }
+    
+    template<std::size_t N>
+    void write_float_array(const std::array<float, N>& arr) {
+        for (std::size_t i = 0; i < N; ++i) {
+            write_f32(arr[i]);
         }
     }
 };
@@ -285,6 +351,15 @@ public:
         pos += len;
         return s;
     }
+    
+    template<std::size_t N>
+    std::array<float, N> read_float_array() {
+        std::array<float, N> arr;
+        for (std::size_t i = 0; i < N; ++i) {
+            arr[i] = read_f32();
+        }
+        return arr;
+    }
 };
 
 // Forward declarations
@@ -341,6 +416,24 @@ void serialize_value(ByteWriter& w, const Value& val) {
                 w.write_string(entry.id);
                 serialize_value(w, *entry.value);
             }
+        } else if constexpr (std::is_same_v<T, Vec2>) {
+            w.write_u8(static_cast<uint8_t>(TypeTag::Vec2));
+            w.write_float_array(arg);
+        } else if constexpr (std::is_same_v<T, Vec3>) {
+            w.write_u8(static_cast<uint8_t>(TypeTag::Vec3));
+            w.write_float_array(arg);
+        } else if constexpr (std::is_same_v<T, Vec4>) {
+            w.write_u8(static_cast<uint8_t>(TypeTag::Vec4));
+            w.write_float_array(arg);
+        } else if constexpr (std::is_same_v<T, Mat3>) {
+            w.write_u8(static_cast<uint8_t>(TypeTag::Mat3));
+            w.write_float_array(arg);
+        } else if constexpr (std::is_same_v<T, Mat4x3>) {
+            w.write_u8(static_cast<uint8_t>(TypeTag::Mat4x3));
+            w.write_float_array(arg);
+        } else if constexpr (std::is_same_v<T, Mat4>) {
+            w.write_u8(static_cast<uint8_t>(TypeTag::Mat4));
+            w.write_float_array(arg);
         }
     }, val.data);
 }
@@ -372,7 +465,6 @@ Value deserialize_value(ByteReader& r) {
             
         case TypeTag::Map: {
             uint32_t count = r.read_u32();
-            // 使用 transient 进行批量构造，避免每次 set 都创建新节点
             auto transient = ValueMap{}.transient();
             for (uint32_t i = 0; i < count; ++i) {
                 std::string key = r.read_string();
@@ -384,7 +476,6 @@ Value deserialize_value(ByteReader& r) {
         
         case TypeTag::Vector: {
             uint32_t count = r.read_u32();
-            // 使用 transient 进行批量构造
             auto transient = ValueVector{}.transient();
             for (uint32_t i = 0; i < count; ++i) {
                 Value val = deserialize_value(r);
@@ -394,21 +485,18 @@ Value deserialize_value(ByteReader& r) {
         }
         
         case TypeTag::Array: {
+            // Note: immer::array lacks push_back/transient, so deserialize as vector
             uint32_t count = r.read_u32();
-            // immer::array 的 API 限制：没有 push_back，transient 也有问题
-            // 解决方案：反序列化为 ValueVector（功能等价且更灵活）
             auto transient = ValueVector{}.transient();
             for (uint32_t i = 0; i < count; ++i) {
                 Value val = deserialize_value(r);
                 transient.push_back(ValueBox{std::move(val)});
             }
-            // 返回 vector 代替 array
             return Value{transient.persistent()};
         }
         
         case TypeTag::Table: {
             uint32_t count = r.read_u32();
-            // 使用 transient 进行批量构造
             auto transient = ValueTable{}.transient();
             for (uint32_t i = 0; i < count; ++i) {
                 std::string id = r.read_string();
@@ -417,6 +505,24 @@ Value deserialize_value(ByteReader& r) {
             }
             return Value{transient.persistent()};
         }
+        
+        case TypeTag::Vec2:
+            return Value{r.read_float_array<2>()};
+            
+        case TypeTag::Vec3:
+            return Value{r.read_float_array<3>()};
+            
+        case TypeTag::Vec4:
+            return Value{r.read_float_array<4>()};
+            
+        case TypeTag::Mat3:
+            return Value{r.read_float_array<9>()};
+            
+        case TypeTag::Mat4x3:
+            return Value{r.read_float_array<12>()};
+            
+        case TypeTag::Mat4:
+            return Value{r.read_float_array<16>()};
         
         default:
             throw std::runtime_error("Unknown type tag: " + std::to_string(static_cast<int>(tag)));
@@ -465,6 +571,18 @@ std::size_t calc_serialized_size(const Value& val) {
                 size += 4 + entry.id.size(); // id string
                 size += calc_serialized_size(*entry.value);
             }
+        } else if constexpr (std::is_same_v<T, Vec2>) {
+            size += 2 * sizeof(float);  // 2 floats
+        } else if constexpr (std::is_same_v<T, Vec3>) {
+            size += 3 * sizeof(float);  // 3 floats
+        } else if constexpr (std::is_same_v<T, Vec4>) {
+            size += 4 * sizeof(float);  // 4 floats
+        } else if constexpr (std::is_same_v<T, Mat3>) {
+            size += 9 * sizeof(float);  // 9 floats
+        } else if constexpr (std::is_same_v<T, Mat4x3>) {
+            size += 12 * sizeof(float); // 12 floats
+        } else if constexpr (std::is_same_v<T, Mat4>) {
+            size += 16 * sizeof(float); // 16 floats
         }
     }, val.data);
     
@@ -552,6 +670,13 @@ public:
         std::memcpy(buffer + pos, s.data(), s.size());
         pos += s.size();
     }
+    
+    template<std::size_t N>
+    void write_float_array(const std::array<float, N>& arr) {
+        for (std::size_t i = 0; i < N; ++i) {
+            write_f32(arr[i]);
+        }
+    }
 };
 
 void serialize_value_direct(DirectByteWriter& w, const Value& val);
@@ -606,6 +731,24 @@ void serialize_value_direct(DirectByteWriter& w, const Value& val) {
                 w.write_string(entry.id);
                 serialize_value_direct(w, *entry.value);
             }
+        } else if constexpr (std::is_same_v<T, Vec2>) {
+            w.write_u8(static_cast<uint8_t>(TypeTag::Vec2));
+            w.write_float_array(arg);
+        } else if constexpr (std::is_same_v<T, Vec3>) {
+            w.write_u8(static_cast<uint8_t>(TypeTag::Vec3));
+            w.write_float_array(arg);
+        } else if constexpr (std::is_same_v<T, Vec4>) {
+            w.write_u8(static_cast<uint8_t>(TypeTag::Vec4));
+            w.write_float_array(arg);
+        } else if constexpr (std::is_same_v<T, Mat3>) {
+            w.write_u8(static_cast<uint8_t>(TypeTag::Mat3));
+            w.write_float_array(arg);
+        } else if constexpr (std::is_same_v<T, Mat4x3>) {
+            w.write_u8(static_cast<uint8_t>(TypeTag::Mat4x3));
+            w.write_float_array(arg);
+        } else if constexpr (std::is_same_v<T, Mat4>) {
+            w.write_u8(static_cast<uint8_t>(TypeTag::Mat4));
+            w.write_float_array(arg);
         }
     }, val.data);
 }
@@ -621,5 +764,403 @@ std::size_t serialize_to(const Value& val, uint8_t* buffer, std::size_t buffer_s
     serialize_value_direct(w, val);
     return w.pos;
 }
+
+// ============================================================
+// JSON Serialization / Deserialization Implementation
+// ============================================================
+
+namespace {
+
+// JSON escape special characters in strings
+std::string json_escape_string(const std::string& s) {
+    std::ostringstream oss;
+    for (char c : s) {
+        switch (c) {
+            case '"':  oss << "\\\""; break;
+            case '\\': oss << "\\\\"; break;
+            case '\b': oss << "\\b"; break;
+            case '\f': oss << "\\f"; break;
+            case '\n': oss << "\\n"; break;
+            case '\r': oss << "\\r"; break;
+            case '\t': oss << "\\t"; break;
+            default:
+                if (static_cast<unsigned char>(c) < 0x20) {
+                    // Control characters as \uXXXX
+                    oss << "\\u" << std::hex << std::setfill('0') << std::setw(4) 
+                        << static_cast<int>(static_cast<unsigned char>(c));
+                } else {
+                    oss << c;
+                }
+        }
+    }
+    return oss.str();
+}
+
+// Forward declaration
+void to_json_impl(const Value& val, std::ostringstream& oss, bool compact, int indent_level);
+
+// Write float array as JSON array
+template<std::size_t N>
+void write_float_array_json(const std::array<float, N>& arr, std::ostringstream& oss) {
+    oss << "[";
+    for (std::size_t i = 0; i < N; ++i) {
+        if (i > 0) oss << ",";
+        oss << std::setprecision(7) << arr[i];
+    }
+    oss << "]";
+}
+
+void to_json_impl(const Value& val, std::ostringstream& oss, bool compact, int indent_level) {
+    const std::string indent = compact ? "" : std::string(indent_level * 2, ' ');
+    const std::string child_indent = compact ? "" : std::string((indent_level + 1) * 2, ' ');
+    const std::string newline = compact ? "" : "\n";
+    const std::string space_after_colon = compact ? "" : " ";
+    
+    std::visit([&](const auto& arg) {
+        using T = std::decay_t<decltype(arg)>;
+        
+        if constexpr (std::is_same_v<T, std::monostate>) {
+            oss << "null";
+        } else if constexpr (std::is_same_v<T, bool>) {
+            oss << (arg ? "true" : "false");
+        } else if constexpr (std::is_same_v<T, int>) {
+            oss << arg;
+        } else if constexpr (std::is_same_v<T, int64_t>) {
+            oss << arg;
+        } else if constexpr (std::is_same_v<T, float>) {
+            oss << std::setprecision(7) << arg;
+        } else if constexpr (std::is_same_v<T, double>) {
+            oss << std::setprecision(15) << arg;
+        } else if constexpr (std::is_same_v<T, std::string>) {
+            oss << "\"" << json_escape_string(arg) << "\"";
+        } else if constexpr (std::is_same_v<T, Vec2>) {
+            write_float_array_json(arg, oss);
+        } else if constexpr (std::is_same_v<T, Vec3>) {
+            write_float_array_json(arg, oss);
+        } else if constexpr (std::is_same_v<T, Vec4>) {
+            write_float_array_json(arg, oss);
+        } else if constexpr (std::is_same_v<T, Mat3>) {
+            write_float_array_json(arg, oss);
+        } else if constexpr (std::is_same_v<T, Mat4x3>) {
+            write_float_array_json(arg, oss);
+        } else if constexpr (std::is_same_v<T, Mat4>) {
+            write_float_array_json(arg, oss);
+        } else if constexpr (std::is_same_v<T, ValueMap>) {
+            if (arg.size() == 0) {
+                oss << "{}";
+            } else {
+                oss << "{" << newline;
+                bool first = true;
+                for (const auto& [k, v] : arg) {
+                    if (!first) oss << "," << newline;
+                    first = false;
+                    oss << child_indent << "\"" << json_escape_string(k) << "\":" << space_after_colon;
+                    to_json_impl(*v, oss, compact, indent_level + 1);
+                }
+                oss << newline << indent << "}";
+            }
+        } else if constexpr (std::is_same_v<T, ValueVector>) {
+            if (arg.size() == 0) {
+                oss << "[]";
+            } else {
+                oss << "[" << newline;
+                bool first = true;
+                for (const auto& v : arg) {
+                    if (!first) oss << "," << newline;
+                    first = false;
+                    oss << child_indent;
+                    to_json_impl(*v, oss, compact, indent_level + 1);
+                }
+                oss << newline << indent << "]";
+            }
+        } else if constexpr (std::is_same_v<T, ValueArray>) {
+            if (arg.size() == 0) {
+                oss << "[]";
+            } else {
+                oss << "[" << newline;
+                for (std::size_t i = 0; i < arg.size(); ++i) {
+                    if (i > 0) oss << "," << newline;
+                    oss << child_indent;
+                    to_json_impl(*arg[i], oss, compact, indent_level + 1);
+                }
+                oss << newline << indent << "]";
+            }
+        } else if constexpr (std::is_same_v<T, ValueTable>) {
+            if (arg.size() == 0) {
+                oss << "{}";
+            } else {
+                oss << "{" << newline;
+                bool first = true;
+                for (const auto& entry : arg) {
+                    if (!first) oss << "," << newline;
+                    first = false;
+                    oss << child_indent << "\"" << json_escape_string(entry.id) << "\":" << space_after_colon;
+                    to_json_impl(*entry.value, oss, compact, indent_level + 1);
+                }
+                oss << newline << indent << "}";
+            }
+        }
+    }, val.data);
+}
+
+// ============================================================
+// Simple JSON Parser
+// ============================================================
+
+class JsonParser {
+public:
+    JsonParser(const std::string& json) : json_(json), pos_(0) {}
+    
+    Value parse(std::string* error_out) {
+        try {
+            skip_whitespace();
+            if (pos_ >= json_.size()) {
+                if (error_out) *error_out = "Empty JSON input";
+                return Value{};
+            }
+            return parse_value();
+        } catch (const std::exception& e) {
+            if (error_out) *error_out = e.what();
+            return Value{};
+        }
+    }
+    
+private:
+    const std::string& json_;
+    std::size_t pos_;
+    
+    char peek() const {
+        return pos_ < json_.size() ? json_[pos_] : '\0';
+    }
+    
+    char consume() {
+        return pos_ < json_.size() ? json_[pos_++] : '\0';
+    }
+    
+    void skip_whitespace() {
+        while (pos_ < json_.size() && std::isspace(static_cast<unsigned char>(json_[pos_]))) {
+            ++pos_;
+        }
+    }
+    
+    void expect(char c) {
+        skip_whitespace();
+        if (consume() != c) {
+            throw std::runtime_error(std::string("Expected '") + c + "' at position " + std::to_string(pos_));
+        }
+    }
+    
+    Value parse_value() {
+        skip_whitespace();
+        char c = peek();
+        
+        if (c == '{') return parse_object();
+        if (c == '[') return parse_array();
+        if (c == '"') return parse_string();
+        if (c == 't' || c == 'f') return parse_bool();
+        if (c == 'n') return parse_null();
+        if (c == '-' || std::isdigit(static_cast<unsigned char>(c))) return parse_number();
+        
+        throw std::runtime_error("Unexpected character '" + std::string(1, c) + "' at position " + std::to_string(pos_));
+    }
+    
+    Value parse_object() {
+        expect('{');
+        skip_whitespace();
+        
+        if (peek() == '}') {
+            consume();
+            return Value{ValueMap{}};
+        }
+        
+        auto transient = ValueMap{}.transient();
+        
+        while (true) {
+            skip_whitespace();
+            std::string key = parse_string_raw();
+            expect(':');
+            Value val = parse_value();
+            transient.set(std::move(key), ValueBox{std::move(val)});
+            
+            skip_whitespace();
+            char c = peek();
+            if (c == '}') {
+                consume();
+                break;
+            }
+            if (c != ',') {
+                throw std::runtime_error("Expected ',' or '}' in object at position " + std::to_string(pos_));
+            }
+            consume();
+        }
+        
+        return Value{transient.persistent()};
+    }
+    
+    Value parse_array() {
+        expect('[');
+        skip_whitespace();
+        
+        if (peek() == ']') {
+            consume();
+            return Value{ValueVector{}};
+        }
+        
+        auto transient = ValueVector{}.transient();
+        
+        while (true) {
+            Value val = parse_value();
+            transient.push_back(ValueBox{std::move(val)});
+            
+            skip_whitespace();
+            char c = peek();
+            if (c == ']') {
+                consume();
+                break;
+            }
+            if (c != ',') {
+                throw std::runtime_error("Expected ',' or ']' in array at position " + std::to_string(pos_));
+            }
+            consume();
+        }
+        
+        return Value{transient.persistent()};
+    }
+    
+    std::string parse_string_raw() {
+        expect('"');
+        std::string result;
+        
+        while (pos_ < json_.size()) {
+            char c = consume();
+            if (c == '"') {
+                return result;
+            }
+            if (c == '\\') {
+                if (pos_ >= json_.size()) {
+                    throw std::runtime_error("Unexpected end of string escape");
+                }
+                char escaped = consume();
+                switch (escaped) {
+                    case '"':  result += '"'; break;
+                    case '\\': result += '\\'; break;
+                    case '/':  result += '/'; break;
+                    case 'b':  result += '\b'; break;
+                    case 'f':  result += '\f'; break;
+                    case 'n':  result += '\n'; break;
+                    case 'r':  result += '\r'; break;
+                    case 't':  result += '\t'; break;
+                    case 'u': {
+                        // Parse \uXXXX
+                        if (pos_ + 4 > json_.size()) {
+                            throw std::runtime_error("Invalid unicode escape");
+                        }
+                        std::string hex = json_.substr(pos_, 4);
+                        pos_ += 4;
+                        int codepoint = std::stoi(hex, nullptr, 16);
+                        if (codepoint < 0x80) {
+                            result += static_cast<char>(codepoint);
+                        } else if (codepoint < 0x800) {
+                            result += static_cast<char>(0xC0 | (codepoint >> 6));
+                            result += static_cast<char>(0x80 | (codepoint & 0x3F));
+                        } else {
+                            result += static_cast<char>(0xE0 | (codepoint >> 12));
+                            result += static_cast<char>(0x80 | ((codepoint >> 6) & 0x3F));
+                            result += static_cast<char>(0x80 | (codepoint & 0x3F));
+                        }
+                        break;
+                    }
+                    default:
+                        throw std::runtime_error("Invalid escape sequence: \\" + std::string(1, escaped));
+                }
+            } else {
+                result += c;
+            }
+        }
+        
+        throw std::runtime_error("Unterminated string");
+    }
+    
+    Value parse_string() {
+        return Value{parse_string_raw()};
+    }
+    
+    Value parse_number() {
+        std::size_t start = pos_;
+        bool has_decimal = false;
+        bool has_exponent = false;
+        
+        if (peek() == '-') consume();
+        
+        while (pos_ < json_.size()) {
+            char c = peek();
+            if (std::isdigit(static_cast<unsigned char>(c))) {
+                consume();
+            } else if (c == '.' && !has_decimal && !has_exponent) {
+                has_decimal = true;
+                consume();
+            } else if ((c == 'e' || c == 'E') && !has_exponent) {
+                has_exponent = true;
+                consume();
+                if (peek() == '+' || peek() == '-') consume();
+            } else {
+                break;
+            }
+        }
+        
+        std::string num_str = json_.substr(start, pos_ - start);
+        
+        if (has_decimal || has_exponent) {
+            return Value{std::stod(num_str)};
+        } else {
+            try {
+                int64_t val = std::stoll(num_str);
+                // Use int if it fits, otherwise int64_t
+                if (val >= INT_MIN && val <= INT_MAX) {
+                    return Value{static_cast<int>(val)};
+                }
+                return Value{val};
+            } catch (...) {
+                return Value{std::stod(num_str)};
+            }
+        }
+    }
+    
+    Value parse_bool() {
+        if (json_.compare(pos_, 4, "true") == 0) {
+            pos_ += 4;
+            return Value{true};
+        }
+        if (json_.compare(pos_, 5, "false") == 0) {
+            pos_ += 5;
+            return Value{false};
+        }
+        throw std::runtime_error("Expected 'true' or 'false' at position " + std::to_string(pos_));
+    }
+    
+    Value parse_null() {
+        if (json_.compare(pos_, 4, "null") == 0) {
+            pos_ += 4;
+            return Value{};
+        }
+        throw std::runtime_error("Expected 'null' at position " + std::to_string(pos_));
+    }
+};
+
+} // anonymous namespace
+
+std::string to_json(const Value& val, bool compact) {
+    std::ostringstream oss;
+    to_json_impl(val, oss, compact, 0);
+    return oss.str();
+}
+
+Value from_json(const std::string& json_str, std::string* error_out) {
+    JsonParser parser(json_str);
+    return parser.parse(error_out);
+}
+
+// Note: path_to_json_pointer() and json_pointer_to_path() are implemented 
+// in json_pointer.cpp to avoid duplicate definitions.
 
 } // namespace immer_lens

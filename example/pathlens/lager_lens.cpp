@@ -4,8 +4,145 @@
 #include "lager_lens.h"
 #include <zug/compose.hpp>
 #include <iostream>
+#include <unordered_map>
+#include <list>
+#include <mutex>
+#include <functional>
 
 namespace immer_lens {
+
+// ============================================================
+// LRU Cache for path lens
+// ============================================================
+
+namespace {
+
+// Hash function for Path
+struct PathHash {
+    std::size_t operator()(const Path& path) const {
+        std::size_t hash = 0;
+        for (const auto& elem : path) {
+            std::size_t elem_hash = std::visit([](const auto& v) -> std::size_t {
+                using T = std::decay_t<decltype(v)>;
+                if constexpr (std::is_same_v<T, std::string>) {
+                    return std::hash<std::string>{}(v);
+                } else {
+                    return std::hash<std::size_t>{}(v);
+                }
+            }, elem);
+            // Combine hashes using FNV-1a style mixing
+            hash ^= elem_hash + 0x9e3779b9 + (hash << 6) + (hash >> 2);
+        }
+        return hash;
+    }
+};
+
+// LRU Cache implementation
+template <typename Key, typename Value, typename Hash = std::hash<Key>>
+class LRUCache {
+public:
+    explicit LRUCache(std::size_t capacity) : capacity_(capacity) {}
+    
+    // Try to get value from cache
+    // Returns nullptr if not found
+    const Value* get(const Key& key) {
+        std::lock_guard<std::mutex> lock(mutex_);
+        
+        auto it = cache_map_.find(key);
+        if (it == cache_map_.end()) {
+            return nullptr;
+        }
+        
+        // Move to front (most recently used)
+        lru_list_.splice(lru_list_.begin(), lru_list_, it->second);
+        return &it->second->second;
+    }
+    
+    // Insert or update value in cache
+    void put(const Key& key, Value value) {
+        std::lock_guard<std::mutex> lock(mutex_);
+        
+        auto it = cache_map_.find(key);
+        if (it != cache_map_.end()) {
+            // Update existing entry and move to front
+            it->second->second = std::move(value);
+            lru_list_.splice(lru_list_.begin(), lru_list_, it->second);
+            return;
+        }
+        
+        // Evict if at capacity
+        if (cache_map_.size() >= capacity_) {
+            // Remove least recently used (back of list)
+            auto& lru = lru_list_.back();
+            cache_map_.erase(lru.first);
+            lru_list_.pop_back();
+        }
+        
+        // Insert new entry at front
+        lru_list_.emplace_front(key, std::move(value));
+        cache_map_[key] = lru_list_.begin();
+    }
+    
+    // Clear the cache
+    void clear() {
+        std::lock_guard<std::mutex> lock(mutex_);
+        cache_map_.clear();
+        lru_list_.clear();
+    }
+    
+    // Get current cache size
+    std::size_t size() const {
+        std::lock_guard<std::mutex> lock(mutex_);
+        return cache_map_.size();
+    }
+    
+    // Get cache statistics
+    struct Stats {
+        std::size_t hits = 0;
+        std::size_t misses = 0;
+        std::size_t size = 0;
+        std::size_t capacity = 0;
+        
+        double hit_rate() const {
+            auto total = hits + misses;
+            return total > 0 ? static_cast<double>(hits) / total : 0.0;
+        }
+    };
+    
+    Stats stats() const {
+        std::lock_guard<std::mutex> lock(mutex_);
+        return Stats{hits_, misses_, cache_map_.size(), capacity_};
+    }
+    
+    void record_hit() const {
+        std::lock_guard<std::mutex> lock(mutex_);
+        ++hits_;
+    }
+    
+    void record_miss() const {
+        std::lock_guard<std::mutex> lock(mutex_);
+        ++misses_;
+    }
+
+private:
+    using ListType = std::list<std::pair<Key, Value>>;
+    using MapType = std::unordered_map<Key, typename ListType::iterator, Hash>;
+    
+    std::size_t capacity_;
+    ListType lru_list_;
+    MapType cache_map_;
+    mutable std::mutex mutex_;
+    mutable std::size_t hits_ = 0;
+    mutable std::size_t misses_ = 0;
+};
+
+// Global lens cache with default capacity of 256
+LRUCache<Path, LagerValueLens, PathHash>& get_lens_cache() {
+    static LRUCache<Path, LagerValueLens, PathHash> cache(256);
+    return cache;
+}
+
+} // anonymous namespace
 
 // ============================================================
 // Basic getset lens implementations
@@ -121,16 +258,9 @@ inline LagerValueLens path_element_to_lens(const PathElement& elem)
         },
         elem);
 }
-} // namespace
 
-// Build lens from path using lager::lens<Value, Value>
-// 
-// Note: We use zug::comp() instead of operator| because:
-// - operator| is defined in the zug namespace as a free function
-// - ADL (Argument-Dependent Lookup) may not find it when both operands
-//   are lager::lens<> (which lives in the lager namespace)
-// - Using zug::comp() explicitly avoids this lookup issue
-LagerValueLens lager_path_lens(const Path& path)
+// Build lens from path without caching (internal helper)
+LagerValueLens build_path_lens_uncached(const Path& path)
 {
     if (path.empty()) {
         return zug::identity;
@@ -145,6 +275,54 @@ LagerValueLens lager_path_lens(const Path& path)
     }
     
     return result;
+}
+} // namespace
+
+// Build lens from path using lager::lens<Value, Value>
+// Uses LRU cache for frequently accessed paths
+// 
+// Note: We use zug::comp() instead of operator| because:
+// - operator| is defined in the zug namespace as a free function
+// - ADL (Argument-Dependent Lookup) may not find it when both operands
+//   are lager::lens<> (which lives in the lager namespace)
+// - Using zug::comp() explicitly avoids this lookup issue
+LagerValueLens lager_path_lens(const Path& path)
+{
+    auto& cache = get_lens_cache();
+    
+    // Try cache first
+    if (const auto* cached = cache.get(path)) {
+        cache.record_hit();
+        return *cached;
+    }
+    
+    // Build lens and cache it
+    cache.record_miss();
+    LagerValueLens lens = build_path_lens_uncached(path);
+    cache.put(path, lens);
+    
+    return lens;
+}
+
+// ============================================================
+// Cache management functions
+// ============================================================
+
+void clear_lens_cache()
+{
+    get_lens_cache().clear();
+}
+
+LensCacheStats get_lens_cache_stats()
+{
+    auto stats = get_lens_cache().stats();
+    return LensCacheStats{
+        stats.hits,
+        stats.misses,
+        stats.size,
+        stats.capacity,
+        stats.hit_rate()
+    };
 }
 
 // ============================================================
@@ -199,6 +377,22 @@ void demo_lager_lens()
     auto static_lens = static_path_lens("users", 0, "name");
     std::cout << "static_path_lens(\"users\", 0, \"name\") = " 
               << value_to_string(lager::view(static_lens, data)) << "\n";
+    
+    // Test cache (access same path multiple times)
+    std::cout << "\n--- Test 6: Lens Cache Demo ---\n";
+    clear_lens_cache();
+    
+    for (int i = 0; i < 5; ++i) {
+        auto lens_again = lager_path_lens(name_path);
+        lager::view(lens_again, data);
+    }
+    
+    auto cache_stats = get_lens_cache_stats();
+    std::cout << "Cache stats after 5 accesses to same path:\n";
+    std::cout << "  Hits: " << cache_stats.hits << "\n";
+    std::cout << "  Misses: " << cache_stats.misses << "\n";
+    std::cout << "  Hit rate: " << (cache_stats.hit_rate * 100.0) << "%\n";
+    std::cout << "  Cache size: " << cache_stats.size << "/" << cache_stats.capacity << "\n";
     
     std::cout << "\n=== Demo End ===\n\n";
 }

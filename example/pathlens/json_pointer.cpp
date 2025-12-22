@@ -2,9 +2,9 @@
 // Implementation of JSON Pointer (RFC 6901) API (Scheme 4)
 
 #include "json_pointer.h"
-#include <algorithm>
 #include <cctype>
 #include <iostream>
+#include <ranges>
 
 namespace immer_lens {
 
@@ -61,8 +61,8 @@ Path parse_json_pointer(std::string_view pointer)
         // We treat it as a string key; callers can handle it specially if needed
         bool is_index = !unescaped.empty() && 
                         unescaped != "-" &&  // "-" is not an index
-                        std::all_of(unescaped.begin(), unescaped.end(), 
-                                   [](unsigned char c) { return std::isdigit(c); });
+                        std::ranges::all_of(unescaped, 
+                                           [](unsigned char c) { return std::isdigit(c); });
         
         if (is_index) {
             result.push_back(static_cast<size_t>(std::stoull(unescaped)));

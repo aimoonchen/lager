@@ -1,12 +1,12 @@
 // shared_value_demo.cpp
-// 演示 SharedValue 的跨进程零拷贝传输
+// Demonstrates SharedValue cross-process zero-copy transfer
 //
-// 这个演示程序展示：
-// 1. B 进程如何创建共享内存并写入 Value
-// 2. A 进程如何打开共享内存并深拷贝到本地
-// 3. 性能对比：共享内存方案 vs 序列化方案
+// This demo shows:
+// 1. How process B creates shared memory and writes Value
+// 2. How process A opens shared memory and deep copies to local
+// 3. Performance comparison: shared memory vs serialization
 
-// 必须在 Windows.h 之前定义，防止 min/max 宏与 std::min/std::max 冲突
+// Must be defined before Windows.h to prevent min/max macro conflicts
 #define NOMINMAX
 
 #include "shared_value.h"
@@ -21,10 +21,9 @@
 using namespace immer_lens;
 
 //==============================================================================
-// 性能测试工具
+// Performance Testing Utilities
 //==============================================================================
 
-// 获取当前时间戳（毫秒）
 inline uint64_t get_timestamp_ms() {
     return std::chrono::duration_cast<std::chrono::milliseconds>(
         std::chrono::system_clock::now().time_since_epoch()).count();
@@ -46,60 +45,214 @@ private:
 };
 
 //==============================================================================
-// 测试数据生成
+// Test Data Generation - Using real scene_object_map.json structure
 //==============================================================================
 
-// 生成大规模测试数据（模拟场景对象）- 本地 Value 版本
+// Helper: generate a UUID-like ID (e.g., "9993E719-8830D0A6-ADD6393F-F677E33E")
+std::string generate_uuid_like_id(size_t index) {
+    // Use index-based deterministic generation for reproducibility
+    uint32_t a = static_cast<uint32_t>(index * 0x9E3779B9 + 0x12345678);
+    uint32_t b = static_cast<uint32_t>(index * 0x85EBCA6B + 0x87654321);
+    uint32_t c = static_cast<uint32_t>(index * 0xC2B2AE35 + 0xABCDEF01);
+    uint32_t d = static_cast<uint32_t>(index * 0x27D4EB2F + 0xFEDCBA98);
+    
+    char buf[64];
+    snprintf(buf, sizeof(buf), "%08X-%08X-%08X-%08X", a, b, c, d);
+    return std::string(buf);
+}
+
+// Helper: create a single realistic scene object (Value version)
+// Structure based on D:\scene_object_map.json
+ValueMap create_scene_object(size_t index) {
+    std::string id = generate_uuid_like_id(index);
+    
+    ValueMap obj;
+    
+    // Basic properties from scene_object_map
+    ValueMap property;
+    property = property.set("name", ValueBox{Value{"IEntity"}});
+    obj = obj.set("property", ValueBox{Value{property}});
+    
+    obj = obj.set("filename", ValueBox{Value{""}});
+    obj = obj.set("space_object_type", ValueBox{Value{static_cast<int64_t>(1048576)}});
+    obj = obj.set("scene_object_id", ValueBox{Value{id}});
+    obj = obj.set("parent", ValueBox{Value{"A7DC0D1A-7B421DB0-5B8D7D86-FDB2A65F"}});
+    obj = obj.set("level", ValueBox{Value{"CB9552E0-F1495927-71830CA6-BE6E082F"}});
+    
+    // Transform: position, scale, euler (Vec3)
+    ValueVector position;
+    position = position.push_back(ValueBox{Value{static_cast<double>(index % 1000)}});
+    position = position.push_back(ValueBox{Value{0.06}});
+    position = position.push_back(ValueBox{Value{static_cast<double>((index / 1000) % 1000)}});
+    obj = obj.set("position", ValueBox{Value{position}});
+    
+    ValueVector scale;
+    scale = scale.push_back(ValueBox{Value{1.0}});
+    scale = scale.push_back(ValueBox{Value{1.0}});
+    scale = scale.push_back(ValueBox{Value{1.0}});
+    obj = obj.set("scale", ValueBox{Value{scale}});
+    
+    ValueVector euler;
+    euler = euler.push_back(ValueBox{Value{0.0}});
+    euler = euler.push_back(ValueBox{Value{static_cast<double>(index % 360)}});
+    euler = euler.push_back(ValueBox{Value{0.0}});
+    obj = obj.set("euler", ValueBox{Value{euler}});
+    
+    // Boolean and integer properties
+    obj = obj.set("visible_mask", ValueBox{Value{true}});
+    obj = obj.set("in_world", ValueBox{Value{true}});
+    obj = obj.set("scene_object_layer", ValueBox{Value{static_cast<int64_t>(143)}});
+    obj = obj.set("name", ValueBox{Value{"SM_CM_1L_Building_" + std::to_string(index)}});
+    obj = obj.set("file", ValueBox{Value{"Scenes/Architecture/CloudMansion/Structure/SM_CM_L1_Building_" + std::to_string(index % 100)}});
+    obj = obj.set("scene_object_locked", ValueBox{Value{false}});
+    obj = obj.set("scene_object_type", ValueBox{Value{static_cast<int64_t>(9)}});
+    obj = obj.set("ModelResource", ValueBox{Value{"Scenes/Architecture/CloudMansion/Structure/SM_CM_L1_Building_" + std::to_string(index % 100)}});
+    
+    // PropertyData - complex nested structure
+    ValueMap propertyData;
+    propertyData = propertyData.set("GenerateOccluder", ValueBox{Value{false}});
+    propertyData = propertyData.set("DeleteOccluder", ValueBox{Value{false}});
+    propertyData = propertyData.set("IsVisible", ValueBox{Value{true}});
+    propertyData = propertyData.set("IsDisableCollision", ValueBox{Value{false}});
+    propertyData = propertyData.set("IsBillboard", ValueBox{Value{false}});
+    propertyData = propertyData.set("IsReflectionVisible", ValueBox{Value{false}});
+    propertyData = propertyData.set("IsOutlined", ValueBox{Value{false}});
+    propertyData = propertyData.set("IsThermalVisible", ValueBox{Value{false}});
+    propertyData = propertyData.set("DetailLevel", ValueBox{Value{static_cast<int64_t>(0)}});
+    propertyData = propertyData.set("TechState", ValueBox{Value{static_cast<int64_t>(0)}});
+    
+    // TechParam vectors (Vec3, Vec4)
+    ValueVector techParam;
+    techParam = techParam.push_back(ValueBox{Value{0.0}});
+    techParam = techParam.push_back(ValueBox{Value{0.0}});
+    techParam = techParam.push_back(ValueBox{Value{0.0}});
+    propertyData = propertyData.set("TechParam", ValueBox{Value{techParam}});
+    
+    ValueVector techParam2;
+    for (int j = 0; j < 4; ++j) techParam2 = techParam2.push_back(ValueBox{Value{0.0}});
+    propertyData = propertyData.set("TechParam2", ValueBox{Value{techParam2}});
+    
+    // TintColor (Vec4)
+    ValueVector tintColor;
+    for (int j = 0; j < 4; ++j) tintColor = tintColor.push_back(ValueBox{Value{1.0}});
+    propertyData = propertyData.set("TintColor1", ValueBox{Value{tintColor}});
+    propertyData = propertyData.set("TintColor2", ValueBox{Value{tintColor}});
+    propertyData = propertyData.set("TintColor3", ValueBox{Value{tintColor}});
+    
+    // LodThreshold, Anchor (Vec3)
+    propertyData = propertyData.set("LodThreshold", ValueBox{Value{techParam}});
+    propertyData = propertyData.set("Anchor", ValueBox{Value{techParam}});
+    
+    propertyData = propertyData.set("IsCastDynamicShadow", ValueBox{Value{true}});
+    propertyData = propertyData.set("IsReceiveDynamicShadow", ValueBox{Value{true}});
+    propertyData = propertyData.set("IsSDFGen", ValueBox{Value{true}});
+    propertyData = propertyData.set("HasCollision", ValueBox{Value{true}});
+    propertyData = propertyData.set("[Type]", ValueBox{Value{"SceneObjectType_9"}});
+    propertyData = propertyData.set("WorldName", ValueBox{Value{"L_CloudMansion_02"}});
+    propertyData = propertyData.set("LevelName", ValueBox{Value{"L_CloudMansion_Mesh_02"}});
+    
+    // Primitives array with ModelComponent
+    ValueVector primitives;
+    ValueMap modelComp;
+    modelComp = modelComp.set("CustomRenderSet", ValueBox{Value{static_cast<int64_t>(0)}});
+    modelComp = modelComp.set("CustomStencil", ValueBox{Value{static_cast<int64_t>(0)}});
+    modelComp = modelComp.set("IsCastDynamicShadow", ValueBox{Value{true}});
+    modelComp = modelComp.set("IsReceiveDynamicShadow", ValueBox{Value{true}});
+    modelComp = modelComp.set("HasPhysics", ValueBox{Value{true}});
+    modelComp = modelComp.set("ReceiveDecals", ValueBox{Value{true}});
+    modelComp = modelComp.set("Lightmap", ValueBox{Value{"AuroraAuto/Model_lightmap/L_CloudMansion_02/atlas_0"}});
+    modelComp = modelComp.set("[Type]", ValueBox{Value{"ModelComponent"}});
+    
+    // LightmapScale, LightmapOffset (Vec4)
+    ValueVector lmScale;
+    lmScale = lmScale.push_back(ValueBox{Value{0.76}});
+    lmScale = lmScale.push_back(ValueBox{Value{0.71}});
+    lmScale = lmScale.push_back(ValueBox{Value{0.51}});
+    lmScale = lmScale.push_back(ValueBox{Value{1.0}});
+    modelComp = modelComp.set("LightmapScale", ValueBox{Value{lmScale}});
+    modelComp = modelComp.set("LightmapOffset", ValueBox{Value{lmScale}});
+    
+    // SyncModel sub-component
+    ValueMap syncModel;
+    syncModel = syncModel.set("GroupID", ValueBox{Value{static_cast<int64_t>(0)}});
+    syncModel = syncModel.set("NeedBake", ValueBox{Value{true}});
+    syncModel = syncModel.set("NeedGenLitmap", ValueBox{Value{true}});
+    syncModel = syncModel.set("NeedCastShadow", ValueBox{Value{true}});
+    syncModel = syncModel.set("NeedReceiveShadow", ValueBox{Value{true}});
+    syncModel = syncModel.set("Occluder", ValueBox{Value{true}});
+    syncModel = syncModel.set("Occludee", ValueBox{Value{true}});
+    syncModel = syncModel.set("CastGIScale", ValueBox{Value{1.0}});
+    syncModel = syncModel.set("[Type]", ValueBox{Value{"SyncModelComponent"}});
+    modelComp = modelComp.set("SyncModel", ValueBox{Value{syncModel}});
+    
+    primitives = primitives.push_back(ValueBox{Value{modelComp}});
+    propertyData = propertyData.set("Primitives", ValueBox{Value{primitives}});
+    
+    // RigidBodies array
+    ValueVector rigidBodies;
+    ValueMap rigidBody;
+    rigidBody = rigidBody.set("ComponentType", ValueBox{Value{"PhysicsStaticSceneBody"}});
+    rigidBody = rigidBody.set("EnableContactNotify", ValueBox{Value{false}});
+    rigidBody = rigidBody.set("Unwalkable", ValueBox{Value{false}});
+    rigidBody = rigidBody.set("TemplateRes", ValueBox{Value{"Scenes/Architecture/CloudMansion/Structure/AutoPhyRBTemplate"}});
+    rigidBody = rigidBody.set("[Type]", ValueBox{Value{"PhysicsStaticSceneBody"}});
+    rigidBodies = rigidBodies.push_back(ValueBox{Value{rigidBody}});
+    propertyData = propertyData.set("RigidBodies", ValueBox{Value{rigidBodies}});
+    
+    // Appearance, Tag components
+    ValueMap appearance;
+    appearance = appearance.set("DepthOffset", ValueBox{Value{static_cast<int64_t>(0)}});
+    appearance = appearance.set("[Type]", ValueBox{Value{"IAppearanceComponent"}});
+    propertyData = propertyData.set("Appearance", ValueBox{Value{appearance}});
+    
+    ValueMap tag;
+    tag = tag.set("TagString", ValueBox{Value{""}});
+    tag = tag.set("[Type]", ValueBox{Value{"TagComponent"}});
+    propertyData = propertyData.set("Tag", ValueBox{Value{tag}});
+    
+    obj = obj.set("PropertyData", ValueBox{Value{propertyData}});
+    
+    // PropertyPaths array
+    ValueVector propertyPaths;
+    propertyPaths = propertyPaths.push_back(ValueBox{Value{"PropertyData"}});
+    propertyPaths = propertyPaths.push_back(ValueBox{Value{"PropertyData/Primitives/0"}});
+    propertyPaths = propertyPaths.push_back(ValueBox{Value{"PropertyData/Primitives/0/SyncModel"}});
+    propertyPaths = propertyPaths.push_back(ValueBox{Value{"PropertyData/RigidBodies/0"}});
+    obj = obj.set("PropertyPaths", ValueBox{Value{propertyPaths}});
+    
+    // Components array
+    ValueVector components;
+    ValueMap comp1;
+    comp1 = comp1.set("DisplayName", ValueBox{Value{"[ModelComponent]"}});
+    comp1 = comp1.set("Icon", ValueBox{Value{"Comp_Model"}});
+    components = components.push_back(ValueBox{Value{comp1}});
+    obj = obj.set("Components", ValueBox{Value{components}});
+    
+    return obj;
+}
+
+// Generate large-scale test data using real scene object structure - Value version
 Value generate_large_scene(size_t object_count) {
-    std::cout << "Generating scene with " << object_count << " objects (local Value)...\n";
+    std::cout << "Generating scene with " << object_count << " objects (Value - single-threaded)...\n";
+    std::cout << "Using real scene_object_map.json structure\n";
     
     Timer timer;
     timer.start();
     
-    // 使用 transient 提高构造性能
-    auto objects_transient = ValueVector{}.transient();
+    auto objects_transient = ValueMap{}.transient();
     
     for (size_t i = 0; i < object_count; ++i) {
-        // 每个对象有多个属性
-        ValueMap obj;
-        obj = obj.set("id", ValueBox{Value{static_cast<int64_t>(i)}});
-        obj = obj.set("name", ValueBox{Value{"Object_" + std::to_string(i)}});
-        obj = obj.set("visible", ValueBox{Value{true}});
+        std::string key = generate_uuid_like_id(i);  // UUID-like key
+        ValueMap obj = create_scene_object(i);
+        objects_transient.set(key, ValueBox{Value{obj}});
         
-        // Transform 属性
-        ValueMap transform;
-        transform = transform.set("x", ValueBox{Value{static_cast<double>(i % 1000)}});
-        transform = transform.set("y", ValueBox{Value{static_cast<double>((i / 1000) % 1000)}});
-        transform = transform.set("z", ValueBox{Value{static_cast<double>(i / 1000000)}});
-        transform = transform.set("rotation", ValueBox{Value{static_cast<double>(i % 360)}});
-        transform = transform.set("scale", ValueBox{Value{1.0}});
-        obj = obj.set("transform", ValueBox{Value{transform}});
-        
-        // 材质属性
-        ValueMap material;
-        material = material.set("color", ValueBox{Value{"#" + std::to_string(i % 0xFFFFFF)}});
-        material = material.set("opacity", ValueBox{Value{1.0}});
-        material = material.set("roughness", ValueBox{Value{0.5}});
-        obj = obj.set("material", ValueBox{Value{material}});
-        
-        // 标签
-        ValueVector tags;
-        tags = tags.push_back(ValueBox{Value{"tag_" + std::to_string(i % 10)}});
-        tags = tags.push_back(ValueBox{Value{"layer_" + std::to_string(i % 5)}});
-        obj = obj.set("tags", ValueBox{Value{tags}});
-        
-        objects_transient.push_back(ValueBox{Value{obj}});
-        
-        // 进度显示
         if ((i + 1) % 10000 == 0) {
             std::cout << "  Generated " << (i + 1) << " objects...\n";
         }
     }
     
     ValueMap scene;
-    scene = scene.set("version", ValueBox{Value{1}});
-    scene = scene.set("name", ValueBox{Value{"Large Scene"}});
-    scene = scene.set("objects", ValueBox{Value{objects_transient.persistent()}});
+    scene = scene.set("scene_object_map", ValueBox{Value{objects_transient.persistent()}});
     
     double elapsed = timer.elapsed_ms();
     std::cout << "Scene generation completed in " << std::fixed << std::setprecision(2) 
@@ -108,20 +261,218 @@ Value generate_large_scene(size_t object_count) {
     return Value{scene};
 }
 
-// 直接在共享内存上生成大规模测试数据（模拟场景对象）- SharedValue 版本
-// 这是真正高性能的方案：数据直接构造在共享内存上，无需中间拷贝
+// Helper: create a single realistic scene object (SyncValue version)
+SyncValueMap create_scene_object_sync(size_t index) {
+    std::string id = generate_uuid_like_id(index);
+    
+    SyncValueMap obj;
+    
+    // Basic properties from scene_object_map
+    SyncValueMap property;
+    property = property.set("name", SyncValueBox{SyncValue{"IEntity"}});
+    obj = obj.set("property", SyncValueBox{SyncValue{property}});
+    
+    obj = obj.set("filename", SyncValueBox{SyncValue{""}});
+    obj = obj.set("space_object_type", SyncValueBox{SyncValue{static_cast<int64_t>(1048576)}});
+    obj = obj.set("scene_object_id", SyncValueBox{SyncValue{id}});
+    obj = obj.set("parent", SyncValueBox{SyncValue{"A7DC0D1A-7B421DB0-5B8D7D86-FDB2A65F"}});
+    obj = obj.set("level", SyncValueBox{SyncValue{"CB9552E0-F1495927-71830CA6-BE6E082F"}});
+    
+    // Transform: position, scale, euler (Vec3)
+    SyncValueVector position;
+    position = position.push_back(SyncValueBox{SyncValue{static_cast<double>(index % 1000)}});
+    position = position.push_back(SyncValueBox{SyncValue{0.06}});
+    position = position.push_back(SyncValueBox{SyncValue{static_cast<double>((index / 1000) % 1000)}});
+    obj = obj.set("position", SyncValueBox{SyncValue{position}});
+    
+    SyncValueVector scale;
+    scale = scale.push_back(SyncValueBox{SyncValue{1.0}});
+    scale = scale.push_back(SyncValueBox{SyncValue{1.0}});
+    scale = scale.push_back(SyncValueBox{SyncValue{1.0}});
+    obj = obj.set("scale", SyncValueBox{SyncValue{scale}});
+    
+    SyncValueVector euler;
+    euler = euler.push_back(SyncValueBox{SyncValue{0.0}});
+    euler = euler.push_back(SyncValueBox{SyncValue{static_cast<double>(index % 360)}});
+    euler = euler.push_back(SyncValueBox{SyncValue{0.0}});
+    obj = obj.set("euler", SyncValueBox{SyncValue{euler}});
+    
+    // Boolean and integer properties
+    obj = obj.set("visible_mask", SyncValueBox{SyncValue{true}});
+    obj = obj.set("in_world", SyncValueBox{SyncValue{true}});
+    obj = obj.set("scene_object_layer", SyncValueBox{SyncValue{static_cast<int64_t>(143)}});
+    obj = obj.set("name", SyncValueBox{SyncValue{"SM_CM_1L_Building_" + std::to_string(index)}});
+    obj = obj.set("file", SyncValueBox{SyncValue{"Scenes/Architecture/CloudMansion/Structure/SM_CM_L1_Building_" + std::to_string(index % 100)}});
+    obj = obj.set("scene_object_locked", SyncValueBox{SyncValue{false}});
+    obj = obj.set("scene_object_type", SyncValueBox{SyncValue{static_cast<int64_t>(9)}});
+    obj = obj.set("ModelResource", SyncValueBox{SyncValue{"Scenes/Architecture/CloudMansion/Structure/SM_CM_L1_Building_" + std::to_string(index % 100)}});
+    
+    // PropertyData - complex nested structure
+    SyncValueMap propertyData;
+    propertyData = propertyData.set("GenerateOccluder", SyncValueBox{SyncValue{false}});
+    propertyData = propertyData.set("DeleteOccluder", SyncValueBox{SyncValue{false}});
+    propertyData = propertyData.set("IsVisible", SyncValueBox{SyncValue{true}});
+    propertyData = propertyData.set("IsDisableCollision", SyncValueBox{SyncValue{false}});
+    propertyData = propertyData.set("IsBillboard", SyncValueBox{SyncValue{false}});
+    propertyData = propertyData.set("IsReflectionVisible", SyncValueBox{SyncValue{false}});
+    propertyData = propertyData.set("IsOutlined", SyncValueBox{SyncValue{false}});
+    propertyData = propertyData.set("IsThermalVisible", SyncValueBox{SyncValue{false}});
+    propertyData = propertyData.set("DetailLevel", SyncValueBox{SyncValue{static_cast<int64_t>(0)}});
+    propertyData = propertyData.set("TechState", SyncValueBox{SyncValue{static_cast<int64_t>(0)}});
+    
+    // TechParam vectors (Vec3, Vec4)
+    SyncValueVector techParam;
+    techParam = techParam.push_back(SyncValueBox{SyncValue{0.0}});
+    techParam = techParam.push_back(SyncValueBox{SyncValue{0.0}});
+    techParam = techParam.push_back(SyncValueBox{SyncValue{0.0}});
+    propertyData = propertyData.set("TechParam", SyncValueBox{SyncValue{techParam}});
+    
+    SyncValueVector techParam2;
+    for (int j = 0; j < 4; ++j) techParam2 = techParam2.push_back(SyncValueBox{SyncValue{0.0}});
+    propertyData = propertyData.set("TechParam2", SyncValueBox{SyncValue{techParam2}});
+    
+    // TintColor (Vec4)
+    SyncValueVector tintColor;
+    for (int j = 0; j < 4; ++j) tintColor = tintColor.push_back(SyncValueBox{SyncValue{1.0}});
+    propertyData = propertyData.set("TintColor1", SyncValueBox{SyncValue{tintColor}});
+    propertyData = propertyData.set("TintColor2", SyncValueBox{SyncValue{tintColor}});
+    propertyData = propertyData.set("TintColor3", SyncValueBox{SyncValue{tintColor}});
+    
+    // LodThreshold, Anchor (Vec3)
+    propertyData = propertyData.set("LodThreshold", SyncValueBox{SyncValue{techParam}});
+    propertyData = propertyData.set("Anchor", SyncValueBox{SyncValue{techParam}});
+    
+    propertyData = propertyData.set("IsCastDynamicShadow", SyncValueBox{SyncValue{true}});
+    propertyData = propertyData.set("IsReceiveDynamicShadow", SyncValueBox{SyncValue{true}});
+    propertyData = propertyData.set("IsSDFGen", SyncValueBox{SyncValue{true}});
+    propertyData = propertyData.set("HasCollision", SyncValueBox{SyncValue{true}});
+    propertyData = propertyData.set("[Type]", SyncValueBox{SyncValue{"SceneObjectType_9"}});
+    propertyData = propertyData.set("WorldName", SyncValueBox{SyncValue{"L_CloudMansion_02"}});
+    propertyData = propertyData.set("LevelName", SyncValueBox{SyncValue{"L_CloudMansion_Mesh_02"}});
+    
+    // Primitives array with ModelComponent
+    SyncValueVector primitives;
+    SyncValueMap modelComp;
+    modelComp = modelComp.set("CustomRenderSet", SyncValueBox{SyncValue{static_cast<int64_t>(0)}});
+    modelComp = modelComp.set("CustomStencil", SyncValueBox{SyncValue{static_cast<int64_t>(0)}});
+    modelComp = modelComp.set("IsCastDynamicShadow", SyncValueBox{SyncValue{true}});
+    modelComp = modelComp.set("IsReceiveDynamicShadow", SyncValueBox{SyncValue{true}});
+    modelComp = modelComp.set("HasPhysics", SyncValueBox{SyncValue{true}});
+    modelComp = modelComp.set("ReceiveDecals", SyncValueBox{SyncValue{true}});
+    modelComp = modelComp.set("Lightmap", SyncValueBox{SyncValue{"AuroraAuto/Model_lightmap/L_CloudMansion_02/atlas_0"}});
+    modelComp = modelComp.set("[Type]", SyncValueBox{SyncValue{"ModelComponent"}});
+    
+    // LightmapScale, LightmapOffset (Vec4)
+    SyncValueVector lmScale;
+    lmScale = lmScale.push_back(SyncValueBox{SyncValue{0.76}});
+    lmScale = lmScale.push_back(SyncValueBox{SyncValue{0.71}});
+    lmScale = lmScale.push_back(SyncValueBox{SyncValue{0.51}});
+    lmScale = lmScale.push_back(SyncValueBox{SyncValue{1.0}});
+    modelComp = modelComp.set("LightmapScale", SyncValueBox{SyncValue{lmScale}});
+    modelComp = modelComp.set("LightmapOffset", SyncValueBox{SyncValue{lmScale}});
+    
+    // SyncModel sub-component
+    SyncValueMap syncModel;
+    syncModel = syncModel.set("GroupID", SyncValueBox{SyncValue{static_cast<int64_t>(0)}});
+    syncModel = syncModel.set("NeedBake", SyncValueBox{SyncValue{true}});
+    syncModel = syncModel.set("NeedGenLitmap", SyncValueBox{SyncValue{true}});
+    syncModel = syncModel.set("NeedCastShadow", SyncValueBox{SyncValue{true}});
+    syncModel = syncModel.set("NeedReceiveShadow", SyncValueBox{SyncValue{true}});
+    syncModel = syncModel.set("Occluder", SyncValueBox{SyncValue{true}});
+    syncModel = syncModel.set("Occludee", SyncValueBox{SyncValue{true}});
+    syncModel = syncModel.set("CastGIScale", SyncValueBox{SyncValue{1.0}});
+    syncModel = syncModel.set("[Type]", SyncValueBox{SyncValue{"SyncModelComponent"}});
+    modelComp = modelComp.set("SyncModel", SyncValueBox{SyncValue{syncModel}});
+    
+    primitives = primitives.push_back(SyncValueBox{SyncValue{modelComp}});
+    propertyData = propertyData.set("Primitives", SyncValueBox{SyncValue{primitives}});
+    
+    // RigidBodies array
+    SyncValueVector rigidBodies;
+    SyncValueMap rigidBody;
+    rigidBody = rigidBody.set("ComponentType", SyncValueBox{SyncValue{"PhysicsStaticSceneBody"}});
+    rigidBody = rigidBody.set("EnableContactNotify", SyncValueBox{SyncValue{false}});
+    rigidBody = rigidBody.set("Unwalkable", SyncValueBox{SyncValue{false}});
+    rigidBody = rigidBody.set("TemplateRes", SyncValueBox{SyncValue{"Scenes/Architecture/CloudMansion/Structure/AutoPhyRBTemplate"}});
+    rigidBody = rigidBody.set("[Type]", SyncValueBox{SyncValue{"PhysicsStaticSceneBody"}});
+    rigidBodies = rigidBodies.push_back(SyncValueBox{SyncValue{rigidBody}});
+    propertyData = propertyData.set("RigidBodies", SyncValueBox{SyncValue{rigidBodies}});
+    
+    // Appearance, Tag components
+    SyncValueMap appearance;
+    appearance = appearance.set("DepthOffset", SyncValueBox{SyncValue{static_cast<int64_t>(0)}});
+    appearance = appearance.set("[Type]", SyncValueBox{SyncValue{"IAppearanceComponent"}});
+    propertyData = propertyData.set("Appearance", SyncValueBox{SyncValue{appearance}});
+    
+    SyncValueMap tag;
+    tag = tag.set("TagString", SyncValueBox{SyncValue{""}});
+    tag = tag.set("[Type]", SyncValueBox{SyncValue{"TagComponent"}});
+    propertyData = propertyData.set("Tag", SyncValueBox{SyncValue{tag}});
+    
+    obj = obj.set("PropertyData", SyncValueBox{SyncValue{propertyData}});
+    
+    // PropertyPaths array
+    SyncValueVector propertyPaths;
+    propertyPaths = propertyPaths.push_back(SyncValueBox{SyncValue{"PropertyData"}});
+    propertyPaths = propertyPaths.push_back(SyncValueBox{SyncValue{"PropertyData/Primitives/0"}});
+    propertyPaths = propertyPaths.push_back(SyncValueBox{SyncValue{"PropertyData/Primitives/0/SyncModel"}});
+    propertyPaths = propertyPaths.push_back(SyncValueBox{SyncValue{"PropertyData/RigidBodies/0"}});
+    obj = obj.set("PropertyPaths", SyncValueBox{SyncValue{propertyPaths}});
+    
+    // Components array
+    SyncValueVector components;
+    SyncValueMap comp1;
+    comp1 = comp1.set("DisplayName", SyncValueBox{SyncValue{"[ModelComponent]"}});
+    comp1 = comp1.set("Icon", SyncValueBox{SyncValue{"Comp_Model"}});
+    components = components.push_back(SyncValueBox{SyncValue{comp1}});
+    obj = obj.set("Components", SyncValueBox{SyncValue{components}});
+    
+    return obj;
+}
+
+// Generate large-scale test data using real scene object structure - SyncValue version
+SyncValue generate_large_scene_sync(size_t object_count) {
+    std::cout << "Generating scene with " << object_count << " objects (SyncValue - thread-safe)...\n";
+    std::cout << "Using real scene_object_map.json structure\n";
+    
+    Timer timer;
+    timer.start();
+    
+    auto objects_transient = SyncValueMap{}.transient();
+    
+    for (size_t i = 0; i < object_count; ++i) {
+        std::string key = generate_uuid_like_id(i);  // UUID-like key
+        SyncValueMap obj = create_scene_object_sync(i);
+        objects_transient.set(key, SyncValueBox{SyncValue{obj}});
+        
+        if ((i + 1) % 10000 == 0) {
+            std::cout << "  Generated " << (i + 1) << " objects...\n";
+        }
+    }
+    
+    SyncValueMap scene;
+    scene = scene.set("scene_object_map", SyncValueBox{SyncValue{objects_transient.persistent()}});
+    
+    double elapsed = timer.elapsed_ms();
+    std::cout << "Scene generation completed in " << std::fixed << std::setprecision(2) 
+              << elapsed << " ms\n";
+    
+    return SyncValue{scene};
+}
+
+// Generate large-scale test data directly in shared memory - SharedValue version
+// This is the truly high-performance approach: data is constructed directly in shared memory
 SharedValue generate_large_scene_shared(size_t object_count) {
     std::cout << "Generating scene with " << object_count << " objects (direct SharedValue)...\n";
     
     Timer timer;
     timer.start();
     
-    // 注意：SharedValue 由于使用 no_transience_policy，不能使用 transient
-    // 但由于 bump allocator 分配非常快，性能依然很好
+    // Note: SharedValue uses no_transience_policy, so transient cannot be used
+    // But bump allocator allocation is very fast, so performance is still good
     SharedValueVector objects;
     
     for (size_t i = 0; i < object_count; ++i) {
-        // 每个对象有多个属性
         SharedValueMap obj;
         obj = std::move(obj).set(shared_memory::SharedString("id"), 
                                   SharedValueBox{SharedValue{static_cast<int64_t>(i)}});
@@ -130,7 +481,7 @@ SharedValue generate_large_scene_shared(size_t object_count) {
         obj = std::move(obj).set(shared_memory::SharedString("visible"), 
                                   SharedValueBox{SharedValue{true}});
         
-        // Transform 属性
+        // Transform properties
         SharedValueMap transform;
         transform = std::move(transform).set(shared_memory::SharedString("x"), 
                                               SharedValueBox{SharedValue{static_cast<double>(i % 1000)}});
@@ -145,7 +496,7 @@ SharedValue generate_large_scene_shared(size_t object_count) {
         obj = std::move(obj).set(shared_memory::SharedString("transform"), 
                                   SharedValueBox{SharedValue{std::move(transform)}});
         
-        // 材质属性
+        // Material properties
         SharedValueMap material;
         material = std::move(material).set(shared_memory::SharedString("color"), 
                                             SharedValueBox{SharedValue{"#" + std::to_string(i % 0xFFFFFF)}});
@@ -156,7 +507,7 @@ SharedValue generate_large_scene_shared(size_t object_count) {
         obj = std::move(obj).set(shared_memory::SharedString("material"), 
                                   SharedValueBox{SharedValue{std::move(material)}});
         
-        // 标签
+        // Tags
         SharedValueVector tags;
         tags = std::move(tags).push_back(SharedValueBox{SharedValue{"tag_" + std::to_string(i % 10)}});
         tags = std::move(tags).push_back(SharedValueBox{SharedValue{"layer_" + std::to_string(i % 5)}});
@@ -165,7 +516,7 @@ SharedValue generate_large_scene_shared(size_t object_count) {
         
         objects = std::move(objects).push_back(SharedValueBox{SharedValue{std::move(obj)}});
         
-        // 进度显示
+        // Progress display
         if ((i + 1) % 10000 == 0) {
             std::cout << "  Generated " << (i + 1) << " objects...\n";
         }
@@ -187,7 +538,7 @@ SharedValue generate_large_scene_shared(size_t object_count) {
 }
 
 //==============================================================================
-// 单进程模拟测试
+// Single Process Simulation Test
 //==============================================================================
 
 void demo_single_process() {
@@ -195,14 +546,14 @@ void demo_single_process() {
     std::cout << "Demo: Single Process Simulation\n";
     std::cout << std::string(60, '=') << "\n\n";
     
-    // 生成测试数据
-    constexpr size_t OBJECT_COUNT = 1000;  // 1000 个对象用于快速测试
-    SharedValue original = generate_large_scene(OBJECT_COUNT);
+    // Generate test data (using Value type)
+    constexpr size_t OBJECT_COUNT = 1000;  // 1000 objects for quick test
+    Value original = generate_large_scene(OBJECT_COUNT);
     
-    std::cout << "\nOriginal SharedValue created.\n";
+    std::cout << "\nOriginal Value created.\n";
     std::cout << "Scene objects count: " << original.at("objects").size() << "\n";
     
-    // 方案 1: 序列化/反序列化
+    // Method 1: Serialization/Deserialization
     std::cout << "\n--- Method 1: Serialization/Deserialization ---\n";
     {
         Timer timer;
@@ -212,7 +563,7 @@ void demo_single_process() {
         double serialize_time = timer.elapsed_ms();
         
         timer.start();
-        SharedValue deserialized = deserialize(buffer);
+        Value deserialized = deserialize(buffer);
         double deserialize_time = timer.elapsed_ms();
         
         std::cout << "Serialized size: " << buffer.size() << " bytes ("
@@ -222,7 +573,7 @@ void demo_single_process() {
         std::cout << "Deserialize time: " << deserialize_time << " ms\n";
         std::cout << "Total time: " << (serialize_time + deserialize_time) << " ms\n";
         
-        // 验证
+        // Verify
         if (deserialized == original) {
             std::cout << "Verification: PASSED\n";
         } else {
@@ -230,12 +581,12 @@ void demo_single_process() {
         }
     }
     
-    // 方案 2: 共享内存深拷贝
+    // Method 2: Shared memory deep copy
     std::cout << "\n--- Method 2: Shared Memory Deep Copy ---\n";
     {
         Timer timer;
         
-        // 模拟 B 进程：创建共享内存并写入
+        // Simulate process B: create shared memory and write
         timer.start();
         shared_memory::SharedMemoryRegion region;
         if (!region.create("TestSharedValue", 256 * 1024 * 1024)) { // 256MB
@@ -254,7 +605,7 @@ void demo_single_process() {
                   << (region.header()->heap_used.load() / 1024.0 / 1024.0) << " MB)\n";
         std::cout << "Write to shared memory time: " << write_time << " ms\n";
         
-        // 模拟 A 进程：从共享内存深拷贝
+        // Simulate process A: deep copy from shared memory
         timer.start();
         Value copied = deep_copy_to_local(shared);
         double copy_time = timer.elapsed_ms();
@@ -262,7 +613,7 @@ void demo_single_process() {
         std::cout << "Deep copy to local time: " << copy_time << " ms\n";
         std::cout << "Total time: " << (write_time + copy_time) << " ms\n";
         
-        // 验证
+        // Verify
         if (copied == original) {
             std::cout << "Verification: PASSED\n";
         } else {
@@ -274,8 +625,8 @@ void demo_single_process() {
 }
 
 //==============================================================================
-// 跨进程测试 - Publisher (B 进程) - 高性能版本
-// 直接在共享内存上构造 SharedValue，无需中间拷贝
+// Cross-Process Test - Publisher (Process B) - High-Performance Version
+// Constructs SharedValue directly in shared memory, no intermediate copy
 //==============================================================================
 
 void demo_publisher(size_t object_count) {
@@ -286,37 +637,36 @@ void demo_publisher(size_t object_count) {
     
     Timer timer;
     
-    // 先创建共享内存区域
-    size_t estimated_size = object_count * 500;  // 估计每个对象约 500 字节
-    estimated_size = std::max(estimated_size, size_t(64 * 1024 * 1024));  // 至少 64MB
+    // First create shared memory region
+    size_t estimated_size = object_count * 500;  // Estimate ~500 bytes per object
+    estimated_size = std::max(estimated_size, size_t(64 * 1024 * 1024));  // At least 64MB
     
     shared_memory::SharedMemoryRegion region;
     if (!region.create("EditorEngineSharedState", estimated_size)) {
         std::cerr << "Failed to create shared memory!\n";
-        std::cerr << "Error code: " << GetLastError() << "\n";
         return;
     }
     
     std::cout << "Shared memory created at: " << region.base() << "\n";
     std::cout << "Shared memory size: " << (estimated_size / 1024.0 / 1024.0) << " MB\n\n";
     
-    // 设置当前共享内存区域，这样所有 SharedValue 都会分配在这里
+    // Set current shared memory region so all SharedValue allocations go there
     shared_memory::set_current_shared_region(&region);
     
-    // 直接在共享内存上构造场景数据（高性能方案）
+    // Construct scene data directly in shared memory (high-performance approach)
     timer.start();
     SharedValue shared_scene = generate_large_scene_shared(object_count);
     double build_time = timer.elapsed_ms();
     
-    // 将 SharedValue 存储到共享内存头部，供订阅者访问
-    // 注意：SharedValue 本身也在共享内存上，所以这里只是记录其地址
+    // Store SharedValue in shared memory header for subscriber access
+    // Note: SharedValue itself is also in shared memory, so we just record its address
     auto* header = region.header();
     
-    // 在共享内存中分配一个 SharedValue 来存储场景
+    // Allocate a SharedValue in shared memory to store the scene
     void* value_storage = shared_memory::shared_heap::allocate(sizeof(SharedValue));
     new (value_storage) SharedValue(std::move(shared_scene));
     
-    // 记录偏移量到头部（使用 memory_order_release 确保之前的写入都可见）
+    // Record offset to header (use memory_order_release to ensure prior writes are visible)
     header->value_offset.store(
         static_cast<char*>(value_storage) - static_cast<char*>(region.base()),
         std::memory_order_release);
@@ -329,7 +679,7 @@ void demo_publisher(size_t object_count) {
               << " bytes (" << (header->heap_used.load() / 1024.0 / 1024.0) << " MB)\n";
     std::cout << "Value stored at offset: " << header->value_offset << "\n";
     
-    // 对比：如果使用序列化方案会需要多久
+    // Comparison: how long would serialization take?
     std::cout << "\n--- Comparison: What if using serialization? ---\n";
     Value local_scene = generate_large_scene(object_count);
     timer.start();
@@ -338,7 +688,7 @@ void demo_publisher(size_t object_count) {
     std::cout << "Serialization would take: " << ser_time << " ms\n";
     std::cout << "Serialized size: " << (buffer.size() / 1024.0 / 1024.0) << " MB\n";
     
-    // 等待订阅者连接
+    // Wait for subscriber to connect
     std::cout << "\nPublisher ready. Run another instance with 'subscribe' to test.\n";
     std::cout << "Press Enter to exit...\n";
     std::cin.get();
@@ -348,7 +698,7 @@ void demo_publisher(size_t object_count) {
 }
 
 //==============================================================================
-// 跨进程测试 - Subscriber (A 进程)
+// Cross-Process Test - Subscriber (Process A)
 //==============================================================================
 
 void demo_subscriber() {
@@ -356,7 +706,7 @@ void demo_subscriber() {
     std::cout << "Demo: Subscriber Process (Editor/A Process)\n";
     std::cout << std::string(60, '=') << "\n\n";
     
-    // 使用 SharedValueHandle 打开共享内存
+    // Use SharedValueHandle to open shared memory
     SharedValueHandle handle;
     
     std::cout << "Trying to open shared memory...\n";
@@ -364,7 +714,6 @@ void demo_subscriber() {
     if (!handle.open("EditorEngineSharedState")) {
         std::cerr << "Failed to open shared memory!\n";
         std::cerr << "Make sure the publisher is running first.\n";
-        std::cerr << "Error code: " << GetLastError() << "\n";
         return;
     }
     
@@ -372,7 +721,7 @@ void demo_subscriber() {
     std::cout << "Shared memory size: " << handle.region().size() << " bytes\n";
     std::cout << "Memory used: " << handle.region().header()->heap_used.load() << " bytes\n";
     
-    // 验证地址匹配
+    // Verify address match
     if (handle.region().base() != handle.region().header()->fixed_base_address) {
         std::cerr << "ERROR: Address mismatch!\n";
         std::cerr << "Expected: " << handle.region().header()->fixed_base_address << "\n";
@@ -383,13 +732,13 @@ void demo_subscriber() {
     
     std::cout << "Address verification: PASSED\n\n";
     
-    // 检查 SharedValue 是否已准备好
+    // Check if SharedValue is ready
     if (!handle.is_value_ready()) {
         std::cerr << "SharedValue not ready in shared memory!\n";
         return;
     }
     
-    // 获取共享的 Value（零拷贝只读访问）
+    // Get shared Value (zero-copy read-only access)
     const SharedValue* shared = handle.shared_value();
     if (!shared) {
         std::cerr << "Failed to get SharedValue pointer!\n";
@@ -398,7 +747,7 @@ void demo_subscriber() {
     
     std::cout << "SharedValue found in shared memory.\n";
     
-    // 测量深拷贝性能
+    // Measure deep copy performance
     Timer timer;
     timer.start();
     Value local = handle.copy_to_local();
@@ -407,7 +756,7 @@ void demo_subscriber() {
     std::cout << "Deep copy to local completed in " << std::fixed << std::setprecision(2) 
               << copy_time << " ms\n";
     
-    // 显示数据摘要
+    // Display data summary
     std::cout << "\n--- Data Summary ---\n";
     if (auto* map = local.get_if<ValueMap>()) {
         if (auto it = map->find("name"); it) {
@@ -433,7 +782,7 @@ void demo_subscriber() {
 }
 
 //==============================================================================
-// 辅助函数：遍历 SharedValue（模拟只读访问）
+// Helper function: traverse SharedValue (simulating read-only access)
 //==============================================================================
 
 size_t traverse_shared_value(const SharedValue& sv) {
@@ -481,11 +830,11 @@ size_t traverse_value(const Value& v) {
 }
 
 //==============================================================================
-// 性能对比测试（4 种方案）
+// Performance Comparison Test (4 Methods)
 //==============================================================================
 
 void performance_comparison() {
-    constexpr size_t OBJECT_COUNT = 100000;  // 10万个对象
+    constexpr size_t OBJECT_COUNT = 50000;  // 50,000 objects
     
     std::cout << "\n" << std::string(100, '=') << "\n";
     std::cout << "Performance Comparison: Four Methods (" << OBJECT_COUNT << " objects)\n";
@@ -507,20 +856,20 @@ void performance_comparison() {
     size_t shared_memory_used_m3 = 0;
     
     //==========================================================================
-    // 方案 1：序列化/反序列化
+    // Method 1: Serialization/Deserialization
     //==========================================================================
     std::cout << "=== Method 1: Serialization ===\n";
     {
-        // 生成本地 Value
+        // Generate local Value
         Value data = generate_large_scene(OBJECT_COUNT);
         
-        // 序列化
+        // Serialize
         timer.start();
         ByteBuffer buffer = serialize(data);
         serialize_time = timer.elapsed_ms();
         serialized_size = buffer.size();
         
-        // 反序列化
+        // Deserialize
         timer.start();
         Value deser = deserialize(buffer);
         deserialize_time = timer.elapsed_ms();
@@ -532,14 +881,14 @@ void performance_comparison() {
     }
     
     //==========================================================================
-    // 方案 2：共享内存（2次拷贝：local -> shared -> local）
+    // Method 2: Shared Memory (2-copy: local -> shared -> local)
     //==========================================================================
     std::cout << "=== Method 2: SharedMem (2-copy) ===\n";
     {
-        // 生成本地 Value
+        // Generate local Value
         Value data = generate_large_scene(OBJECT_COUNT);
         
-        // 创建共享内存
+        // Create shared memory
         shared_memory::SharedMemoryRegion region;
         if (!region.create("PerfTest2", 1024 * 1024 * 1024)) {  // 1GB
             std::cerr << "Failed to create shared memory!\n";
@@ -548,12 +897,12 @@ void performance_comparison() {
         
         shared_memory::set_current_shared_region(&region);
         
-        // 深拷贝到共享内存
+        // Deep copy to shared memory
         timer.start();
         SharedValue shared = deep_copy_to_shared(data);
         deep_copy_to_shared_time = timer.elapsed_ms();
         
-        // 深拷贝回本地
+        // Deep copy back to local
         timer.start();
         Value local = deep_copy_to_local(shared);
         deep_copy_to_local_time_m2 = timer.elapsed_ms();
@@ -570,11 +919,11 @@ void performance_comparison() {
     }
     
     //==========================================================================
-    // 方案 3：共享内存（1次拷贝：直接在共享内存构造 -> 拷贝到本地）
+    // Method 3: Shared Memory (1-copy: construct directly in shared memory -> copy to local)
     //==========================================================================
     std::cout << "=== Method 3: SharedMem (Direct Build - 1-copy) ===\n";
     {
-        // 创建共享内存
+        // Create shared memory
         shared_memory::SharedMemoryRegion region;
         if (!region.create("PerfTest3", 1024 * 1024 * 1024)) {  // 1GB
             std::cerr << "Failed to create shared memory!\n";
@@ -583,12 +932,12 @@ void performance_comparison() {
         
         shared_memory::set_current_shared_region(&region);
         
-        // 直接在共享内存上构造
+        // Construct directly in shared memory
         timer.start();
         SharedValue shared_direct = generate_large_scene_shared(OBJECT_COUNT);
         direct_build_time = timer.elapsed_ms();
         
-        // 深拷贝回本地（这是 Editor 进程需要做的唯一操作）
+        // Deep copy back to local (the only operation Editor process needs to do)
         timer.start();
         Value local = deep_copy_to_local(shared_direct);
         deep_copy_to_local_time_m3 = timer.elapsed_ms();
@@ -605,14 +954,14 @@ void performance_comparison() {
     }
     
     //==========================================================================
-    // 方案 4：共享内存（零拷贝：直接读取，不拷贝！）
-    // 这是真正的零拷贝 - Editor 直接读取共享内存中的数据
+    // Method 4: Shared Memory (ZERO-COPY: direct read, no copy!)
+    // This is true zero-copy - Editor directly reads data in shared memory
     //==========================================================================
     std::cout << "=== Method 4: SharedMem (TRUE ZERO-COPY - Direct Read) ===\n";
     double direct_read_time = 0;
     size_t node_count = 0;
     {
-        // 创建共享内存
+        // Create shared memory
         shared_memory::SharedMemoryRegion region;
         if (!region.create("PerfTest4", 1024 * 1024 * 1024)) {  // 1GB
             std::cerr << "Failed to create shared memory!\n";
@@ -621,11 +970,11 @@ void performance_comparison() {
         
         shared_memory::set_current_shared_region(&region);
         
-        // 直接在共享内存上构造（Engine 端）
+        // Construct directly in shared memory (Engine side)
         SharedValue shared_direct = generate_large_scene_shared(OBJECT_COUNT);
         
-        // 零拷贝：Editor 直接遍历读取共享内存中的数据，不做任何拷贝！
-        // 这模拟了 Editor 只读访问场景（例如在 UI 中显示属性）
+        // ZERO-COPY: Editor directly traverses and reads data in shared memory, no copy at all!
+        // This simulates Editor read-only access to the scene (e.g., displaying properties in UI)
         timer.start();
         node_count = traverse_shared_value(shared_direct);
         direct_read_time = timer.elapsed_ms();
@@ -638,13 +987,13 @@ void performance_comparison() {
     }
     
     //==========================================================================
-    // 结果汇总
+    // Results Summary
     //==========================================================================
-    // 从 Editor 进程角度看的时间（不包含 Engine 构造数据的时间）
-    double editor_m1 = deserialize_time;  // Editor 只需要反序列化
-    double editor_m2 = deep_copy_to_local_time_m2;  // Editor 只需要 deep_copy_to_local
-    double editor_m3 = deep_copy_to_local_time_m3;  // Editor 只需要 deep_copy_to_local
-    double editor_m4 = direct_read_time;  // Editor 直接读取，零拷贝！
+    // Time from Editor process perspective (not including Engine data construction time)
+    double editor_m1 = deserialize_time;           // Editor only needs to deserialize
+    double editor_m2 = deep_copy_to_local_time_m2; // Editor only needs deep_copy_to_local
+    double editor_m3 = deep_copy_to_local_time_m3; // Editor only needs deep_copy_to_local
+    double editor_m4 = direct_read_time;           // Editor reads directly, zero-copy!
     
     std::cout << std::string(100, '=') << "\n";
     std::cout << "SUMMARY (" << OBJECT_COUNT << " objects)\n";
@@ -695,20 +1044,266 @@ void performance_comparison() {
 }
 
 //==============================================================================
-// 主函数
+// Value vs SyncValue Performance Comparison
+// Compares single-threaded (non-atomic refcount) vs thread-safe (atomic refcount)
+//==============================================================================
+
+size_t traverse_sync_value(const SyncValue& v) {
+    size_t count = 1;
+    
+    if (auto* map = v.get_if<SyncValueMap>()) {
+        for (const auto& [key, box] : *map) {
+            count += traverse_sync_value(box.get());
+        }
+    }
+    else if (auto* vec = v.get_if<SyncValueVector>()) {
+        for (const auto& box : *vec) {
+            count += traverse_sync_value(box.get());
+        }
+    }
+    else if (auto* arr = v.get_if<SyncValueArray>()) {
+        for (const auto& box : *arr) {
+            count += traverse_sync_value(box.get());
+        }
+    }
+    
+    return count;
+}
+
+void value_vs_sync_comparison() {
+    constexpr size_t OBJECT_COUNT = 50000;  // 50,000 objects for fair comparison
+    
+    std::cout << "\n" << std::string(100, '=') << "\n";
+    std::cout << "Value vs SyncValue Performance Comparison (" << OBJECT_COUNT << " objects)\n";
+    std::cout << std::string(100, '=') << "\n\n";
+    
+    std::cout << "This test compares:\n";
+    std::cout << "  - Value (UnsafeValue):     Non-atomic refcount, no locks, highest performance\n";
+    std::cout << "  - SyncValue (ThreadSafeValue): Atomic refcount + spinlock, thread-safe\n";
+    std::cout << "\n";
+    
+    Timer timer;
+    
+    //==========================================================================
+    // Phase 1: Construction Performance
+    //==========================================================================
+    std::cout << "=== Phase 1: Construction Performance ===\n\n";
+    
+    double value_construct_time = 0;
+    double sync_construct_time = 0;
+    
+    // Value construction
+    {
+        timer.start();
+        Value scene = generate_large_scene(OBJECT_COUNT);
+        value_construct_time = timer.elapsed_ms();
+    }
+    
+    // SyncValue construction
+    {
+        timer.start();
+        SyncValue scene = generate_large_scene_sync(OBJECT_COUNT);
+        sync_construct_time = timer.elapsed_ms();
+    }
+    
+    std::cout << "\n--- Construction Results ---\n";
+    std::cout << std::fixed << std::setprecision(2);
+    std::cout << "  Value construction:     " << value_construct_time << " ms\n";
+    std::cout << "  SyncValue construction: " << sync_construct_time << " ms\n";
+    std::cout << "  Overhead: " << ((sync_construct_time / value_construct_time) - 1.0) * 100.0 << "%\n";
+    std::cout << "  Value is " << (sync_construct_time / value_construct_time) << "x faster\n\n";
+    
+    //==========================================================================
+    // Phase 2: Copy/Clone Performance (triggers refcount operations)
+    //==========================================================================
+    std::cout << "=== Phase 2: Copy/Clone Performance (refcount stress test) ===\n\n";
+    
+    constexpr size_t COPY_COUNT = 1000;
+    double value_copy_time = 0;
+    double sync_copy_time = 0;
+    
+    // Value copy test
+    {
+        Value scene = generate_large_scene(OBJECT_COUNT);
+        std::vector<Value> copies;
+        copies.reserve(COPY_COUNT);
+        
+        timer.start();
+        for (size_t i = 0; i < COPY_COUNT; ++i) {
+            copies.push_back(scene);  // Shallow copy, increments refcount
+        }
+        value_copy_time = timer.elapsed_ms();
+        
+        std::cout << "  Value: " << COPY_COUNT << " shallow copies completed in " << value_copy_time << " ms\n";
+    }
+    
+    // SyncValue copy test
+    {
+        SyncValue scene = generate_large_scene_sync(OBJECT_COUNT);
+        std::vector<SyncValue> copies;
+        copies.reserve(COPY_COUNT);
+        
+        timer.start();
+        for (size_t i = 0; i < COPY_COUNT; ++i) {
+            copies.push_back(scene);  // Shallow copy, atomic refcount increment
+        }
+        sync_copy_time = timer.elapsed_ms();
+        
+        std::cout << "  SyncValue: " << COPY_COUNT << " shallow copies completed in " << sync_copy_time << " ms\n";
+    }
+    
+    std::cout << "\n--- Copy Results ---\n";
+    std::cout << "  Value copy time:     " << value_copy_time << " ms\n";
+    std::cout << "  SyncValue copy time: " << sync_copy_time << " ms\n";
+    std::cout << "  Overhead: " << ((sync_copy_time / value_copy_time) - 1.0) * 100.0 << "%\n";
+    std::cout << "  Value is " << (sync_copy_time / value_copy_time) << "x faster\n\n";
+    
+    //==========================================================================
+    // Phase 3: Traversal Performance
+    //==========================================================================
+    std::cout << "=== Phase 3: Traversal Performance ===\n\n";
+    
+    double value_traverse_time = 0;
+    double sync_traverse_time = 0;
+    size_t value_node_count = 0;
+    size_t sync_node_count = 0;
+    
+    // Value traversal
+    {
+        Value scene = generate_large_scene(OBJECT_COUNT);
+        
+        timer.start();
+        value_node_count = traverse_value(scene);
+        value_traverse_time = timer.elapsed_ms();
+        
+        std::cout << "  Value: Traversed " << value_node_count << " nodes in " << value_traverse_time << " ms\n";
+    }
+    
+    // SyncValue traversal
+    {
+        SyncValue scene = generate_large_scene_sync(OBJECT_COUNT);
+        
+        timer.start();
+        sync_node_count = traverse_sync_value(scene);
+        sync_traverse_time = timer.elapsed_ms();
+        
+        std::cout << "  SyncValue: Traversed " << sync_node_count << " nodes in " << sync_traverse_time << " ms\n";
+    }
+    
+    std::cout << "\n--- Traversal Results ---\n";
+    std::cout << "  Value traversal time:     " << value_traverse_time << " ms\n";
+    std::cout << "  SyncValue traversal time: " << sync_traverse_time << " ms\n";
+    std::cout << "  Overhead: " << ((sync_traverse_time / value_traverse_time) - 1.0) * 100.0 << "%\n";
+    std::cout << "  Value is " << (sync_traverse_time / value_traverse_time) << "x faster\n\n";
+    
+    //==========================================================================
+    // Phase 4: Modification Performance (structural changes)
+    //==========================================================================
+    std::cout << "=== Phase 4: Modification Performance (set operations) ===\n\n";
+    
+    constexpr size_t MODIFY_COUNT = 10000;
+    double value_modify_time = 0;
+    double sync_modify_time = 0;
+    
+    // Value modification
+    {
+        Value scene = generate_large_scene(1000);  // Smaller scene for modification test
+        
+        timer.start();
+        for (size_t i = 0; i < MODIFY_COUNT; ++i) {
+            // Access and modify a property - creates new nodes, triggers refcount ops
+            if (auto* map = scene.get_if<ValueMap>()) {
+                ValueMap newMap = *map;
+                newMap = newMap.set("counter", ValueBox{Value{static_cast<int64_t>(i)}});
+                scene = Value{newMap};
+            }
+        }
+        value_modify_time = timer.elapsed_ms();
+        
+        std::cout << "  Value: " << MODIFY_COUNT << " modifications completed in " << value_modify_time << " ms\n";
+    }
+    
+    // SyncValue modification
+    {
+        SyncValue scene = generate_large_scene_sync(1000);  // Smaller scene for modification test
+        
+        timer.start();
+        for (size_t i = 0; i < MODIFY_COUNT; ++i) {
+            if (auto* map = scene.get_if<SyncValueMap>()) {
+                SyncValueMap newMap = *map;
+                newMap = newMap.set("counter", SyncValueBox{SyncValue{static_cast<int64_t>(i)}});
+                scene = SyncValue{newMap};
+            }
+        }
+        sync_modify_time = timer.elapsed_ms();
+        
+        std::cout << "  SyncValue: " << MODIFY_COUNT << " modifications completed in " << sync_modify_time << " ms\n";
+    }
+    
+    std::cout << "\n--- Modification Results ---\n";
+    std::cout << "  Value modification time:     " << value_modify_time << " ms\n";
+    std::cout << "  SyncValue modification time: " << sync_modify_time << " ms\n";
+    std::cout << "  Overhead: " << ((sync_modify_time / value_modify_time) - 1.0) * 100.0 << "%\n";
+    std::cout << "  Value is " << (sync_modify_time / value_modify_time) << "x faster\n\n";
+    
+    //==========================================================================
+    // Summary
+    //==========================================================================
+    std::cout << std::string(100, '=') << "\n";
+    std::cout << "SUMMARY: Value vs SyncValue Performance\n";
+    std::cout << std::string(100, '-') << "\n";
+    std::cout << std::fixed << std::setprecision(2);
+    std::cout << "                    | Value        | SyncValue    | Overhead     | Value Speedup\n";
+    std::cout << std::string(100, '-') << "\n";
+    std::cout << "Construction (ms)   | " << std::setw(12) << value_construct_time 
+              << " | " << std::setw(12) << sync_construct_time 
+              << " | " << std::setw(10) << ((sync_construct_time / value_construct_time) - 1.0) * 100.0 << "%" 
+              << " | " << std::setw(10) << (sync_construct_time / value_construct_time) << "x\n";
+    std::cout << "Copy " << COPY_COUNT << "x (ms)     | " << std::setw(12) << value_copy_time 
+              << " | " << std::setw(12) << sync_copy_time 
+              << " | " << std::setw(10) << ((sync_copy_time / value_copy_time) - 1.0) * 100.0 << "%" 
+              << " | " << std::setw(10) << (sync_copy_time / value_copy_time) << "x\n";
+    std::cout << "Traversal (ms)      | " << std::setw(12) << value_traverse_time 
+              << " | " << std::setw(12) << sync_traverse_time 
+              << " | " << std::setw(10) << ((sync_traverse_time / value_traverse_time) - 1.0) * 100.0 << "%" 
+              << " | " << std::setw(10) << (sync_traverse_time / value_traverse_time) << "x\n";
+    std::cout << "Modification (ms)   | " << std::setw(12) << value_modify_time 
+              << " | " << std::setw(12) << sync_modify_time 
+              << " | " << std::setw(10) << ((sync_modify_time / value_modify_time) - 1.0) * 100.0 << "%" 
+              << " | " << std::setw(10) << (sync_modify_time / value_modify_time) << "x\n";
+    std::cout << std::string(100, '=') << "\n\n";
+    
+    std::cout << "Conclusion:\n";
+    std::cout << "  - Value (UnsafeValue) is faster for all operations due to non-atomic refcount\n";
+    std::cout << "  - The overhead of SyncValue comes from atomic operations (memory barriers)\n";
+    std::cout << "  - Use Value (default) for single-threaded scenarios\n";
+    std::cout << "  - Use SyncValue only when data is shared between threads\n";
+    std::cout << "\n";
+    
+    std::cout << "Recommendations:\n";
+    std::cout << "  - Single-threaded applications: Use Value (default)\n";
+    std::cout << "  - Multi-threaded with thread-local data: Use Value per thread\n";
+    std::cout << "  - Multi-threaded with shared data: Use SyncValue\n";
+    std::cout << "  - Cross-process communication: Use SharedValue\n";
+}
+
+//==============================================================================
+// Main Function
 //==============================================================================
 
 void print_usage() {
     std::cout << "Usage: shared_value_demo [command]\n";
     std::cout << "\nCommands:\n";
-    std::cout << "  single     - Single process demo (default)\n";
-    std::cout << "  publish N  - Run as publisher with N objects\n";
-    std::cout << "  subscribe  - Run as subscriber\n";
-    std::cout << "  perf       - Performance comparison\n";
+    std::cout << "  single       - Single process demo (default)\n";
+    std::cout << "  publish N    - Run as publisher with N objects\n";
+    std::cout << "  subscribe    - Run as subscriber\n";
+    std::cout << "  perf         - Performance comparison (4 methods)\n";
+    std::cout << "  value_sync   - Value vs SyncValue performance comparison\n";
     std::cout << "\nExamples:\n";
     std::cout << "  shared_value_demo single\n";
     std::cout << "  shared_value_demo publish 10000\n";
     std::cout << "  shared_value_demo subscribe\n";
+    std::cout << "  shared_value_demo value_sync\n";
 }
 
 int main(int argc, char* argv[]) {
@@ -736,6 +1331,9 @@ int main(int argc, char* argv[]) {
     }
     else if (command == "perf") {
         performance_comparison();
+    }
+    else if (command == "value_sync") {
+        value_vs_sync_comparison();
     }
     else {
         print_usage();

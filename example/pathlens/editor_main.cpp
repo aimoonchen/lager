@@ -1,11 +1,11 @@
 
 // editor_main.cpp
-// Editor 进程 (A进程) - 合并的 QML/Widgets 版本
+// Editor Process (Process A) - Combined QML/Widgets version
 //
-// 编译选项：
-// - EDITOR_USE_QML=1 : 使用 QML 界面
-// - EDITOR_USE_QML=0 或未定义 : 使用 Qt Widgets 界面
-// - EDITOR_HAS_QML : 由 CMake 自动定义，表示 QML 支持可用
+// Build options:
+// - EDITOR_USE_QML=1 : Use QML interface
+// - EDITOR_USE_QML=0 or undefined : Use Qt Widgets interface
+// - EDITOR_HAS_QML : Automatically defined by CMake when QML support is available
 
 #include "editor_engine.h"
 #include "value.h"
@@ -17,7 +17,6 @@
 #include <QMessageBox>
 #include <iostream>
 
-// 检查是否使用 QML
 #if defined(EDITOR_USE_QML) && EDITOR_USE_QML && defined(EDITOR_HAS_QML)
     #define USE_QML_UI 1
 #else
@@ -107,7 +106,7 @@ QVariant valueToQVariant(const Value& val) {
 Value qvariantToValue(const QVariant& var) {
     switch (static_cast<QMetaType::Type>(var.type())) {
         case QMetaType::UnknownType:
-            return Value{};  // 返回 monostate (null)
+            return Value{};
         case QMetaType::Bool:
             return Value{var.toBool()};
         case QMetaType::Int:
@@ -446,7 +445,7 @@ private:
             default:
                 break;
         }
-        return Value{};  // 返回 monostate (null)
+        return Value{};
     }
 
     PropertyMeta meta_;
@@ -804,10 +803,9 @@ int main(int argc, char** argv)
 {
     QApplication app(argc, argv);
     
-    // 设置应用程序样式
     app.setStyle("Fusion");
     
-    // 设置暗色主题
+    // Dark theme palette
     QPalette darkPalette;
     darkPalette.setColor(QPalette::Window, QColor(53, 53, 53));
     darkPalette.setColor(QPalette::WindowText, Qt::white);
@@ -825,14 +823,12 @@ int main(int argc, char** argv)
     app.setPalette(darkPalette);
     
 #if USE_QML_UI
-    // QML 版本
     std::cout << "[Editor] Starting with QML UI..." << std::endl;
     
     QQmlApplicationEngine engine;
     QQuickStyle::setStyle("Material");
     
-    // 注册 QML 类型
-    // TODO: 需要创建 QML 版本的 EditorApp 类
+    // TODO: Create QML version of EditorApp class
     
     engine.load(QUrl::fromLocalFile(
         QString(LAGER_PATHLENS_QML_DIR) + "/main.qml"));
@@ -842,7 +838,6 @@ int main(int argc, char** argv)
         return -1;
     }
 #else
-    // Qt Widgets 版本
     std::cout << "[Editor] Starting with Qt Widgets UI..." << std::endl;
     
     EditorMainWindow window;

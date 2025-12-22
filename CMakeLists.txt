@@ -5,16 +5,18 @@ list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 
 project(lager VERSION 0.1.0)
 
+# C++20 标准设置 - 全局生效
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
+
 if(MSVC)
-  set(CMAKE_CXX_STANDARD 20)
   add_compile_options(/W3 /Zc:preprocessor /bigobj)
 else()
-  set(CMAKE_CXX_STANDARD 20)
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall")
 endif()
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS on)
-set(CMAKE_CXX_EXTENSIONS off)
 if ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "Clang")
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Qunused-arguments")
 endif()
@@ -88,35 +90,41 @@ install(TARGETS lager EXPORT LagerConfig)
 # requirements for tests and examples
 if (lager_BUILD_TESTS OR lager_BUILD_EXAMPLES)
   # ============================================================
-  # 依赖库路径配置 - 使用指定路径而非 find_package
+  # 依赖库路径配置 - 使用 third_party 目录
   # ============================================================
   
-  # Boost - 使用指定路径
-  set(BOOST_ROOT "D:/Github/vcpkg/installed/x64-windows" CACHE PATH "Boost root directory")
-  set(Boost_INCLUDE_DIR "${BOOST_ROOT}/include" CACHE PATH "Boost include directory")
-  set(Boost_LIBRARY_DIR "${BOOST_ROOT}/lib" CACHE PATH "Boost library directory")
+  # Boost - 使用 third_party 目录 (header-only)
+  # 包含: Hana, Intrusive, Interprocess 及其依赖
+  set(Boost_INCLUDE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/third_party/boost" CACHE PATH "Boost include directory")
   
   if(NOT EXISTS "${Boost_INCLUDE_DIR}/boost/version.hpp")
-    message(FATAL_ERROR "Boost not found at ${Boost_INCLUDE_DIR}. Please set Boost_INCLUDE_DIR correctly.")
+    message(FATAL_ERROR "Boost not found at ${Boost_INCLUDE_DIR}. Please ensure Boost headers are in third_party/boost/boost/")
   endif()
-  message(STATUS "Using Boost from: ${Boost_INCLUDE_DIR}")
+  message(STATUS "Using Boost from third_party: ${Boost_INCLUDE_DIR}")
   
-  # Boost libraries (手动指定，避免 find_package)
-  set(Boost_LIBRARIES "") # Boost header-only 足够大部分用途
+  # Boost libraries (header-only, 无需链接库)
+  set(Boost_LIBRARIES "")
   
-  # immer - 使用指定路径
-  set(IMMER_INCLUDE_DIR "D:/Github/immer" CACHE PATH "Immer include directory")
+  # 创建 Boost interface 目标
+  if(NOT TARGET Boost::headers)
+    add_library(Boost_headers INTERFACE)
+    add_library(Boost::headers ALIAS Boost_headers)
+    target_include_directories(Boost_headers INTERFACE ${Boost_INCLUDE_DIR})
+  endif()
+  
+  # immer - 使用 third_party 子模块
+  set(IMMER_INCLUDE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/third_party/immer" CACHE PATH "Immer include directory")
   if(NOT EXISTS "${IMMER_INCLUDE_DIR}/immer/vector.hpp")
-    message(FATAL_ERROR "Immer not found at ${IMMER_INCLUDE_DIR}. Please set IMMER_INCLUDE_DIR correctly.")
+    message(FATAL_ERROR "Immer submodule not found. Please run: git submodule update --init --recursive")
   endif()
-  message(STATUS "Using Immer from: ${IMMER_INCLUDE_DIR}")
+  message(STATUS "Using Immer from submodule: ${IMMER_INCLUDE_DIR}")
   
-  # zug - 使用指定路径
-  set(ZUG_INCLUDE_DIR "D:/Github/zug" CACHE PATH "Zug include directory")
+  # zug - 使用 third_party 子模块
+  set(ZUG_INCLUDE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/third_party/zug" CACHE PATH "Zug include directory")
   if(NOT EXISTS "${ZUG_INCLUDE_DIR}/zug/compose.hpp")
-    message(FATAL_ERROR "Zug not found at ${ZUG_INCLUDE_DIR}. Please set ZUG_INCLUDE_DIR correctly.")
+    message(FATAL_ERROR "Zug submodule not found. Please run: git submodule update --init --recursive")
   endif()
-  message(STATUS "Using Zug from: ${ZUG_INCLUDE_DIR}")
+  message(STATUS "Using Zug from submodule: ${ZUG_INCLUDE_DIR}")
   
   # 创建 immer 和 zug 的 interface 目标（如果不存在）
   if(NOT TARGET immer)
@@ -127,6 +135,8 @@ if (lager_BUILD_TESTS OR lager_BUILD_EXAMPLES)
   if(NOT TARGET zug)
     add_library(zug INTERFACE)
     target_include_directories(zug INTERFACE ${ZUG_INCLUDE_DIR})
+    # 使用 C++ 标准库的 std::variant 而不是 Boost.Variant
+    target_compile_definitions(zug INTERFACE ZUG_VARIANT_STD)
   endif()
   
   find_package(Threads REQUIRED)

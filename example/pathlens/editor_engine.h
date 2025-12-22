@@ -1,15 +1,18 @@
-// editor_engine.h
-// Editor-Engine Cross-Process State Management
-//
-// This module implements a technical preview for a game engine editor architecture:
-// - Process A (Editor): Uses lager store for state management with redo/undo
-// - Process B (Engine): Maintains runtime scene objects, receives state updates
-//
-// Key features:
-// 1. Scene objects are serialized to Value with UI metadata for Qt binding
-// 2. Editor uses lager cursors/lenses for property editing
-// 3. State changes are published as diffs to the engine process
-// 4. Supports redo/undo via lager's built-in mechanisms
+// Copyright (c) 2024 chenmou. All rights reserved.
+// Licensed under the MIT License. See LICENSE file in the project root.
+
+/// @file editor_engine.h
+/// @brief Editor-Engine Cross-Process State Management.
+///
+/// This module implements a technical preview for a game engine editor architecture:
+/// - Process A (Editor): Uses lager store for state management with redo/undo
+/// - Process B (Engine): Maintains runtime scene objects, receives state updates
+///
+/// Key features:
+/// 1. Scene objects are serialized to Value with UI metadata for Qt binding
+/// 2. Editor uses lager cursors/lenses for property editing
+/// 3. State changes are published as diffs to the engine process
+/// 4. Supports redo/undo via lager's built-in mechanisms
 
 #pragma once
 
@@ -23,6 +26,8 @@
 #include <lager/cursor.hpp>
 #include <lager/lenses.hpp>
 #include <lager/lenses/at.hpp>
+
+#include <immer/flex_vector.hpp>
 
 #include <functional>
 #include <memory>
@@ -88,7 +93,7 @@ struct ObjectMeta {
     std::vector<PropertyMeta> properties;
     
     // Find property meta by name
-    const PropertyMeta* find_property(const std::string& name) const {
+    [[nodiscard]] const PropertyMeta* find_property(const std::string& name) const {
         for (const auto& prop : properties) {
             if (prop.name == name) return &prop;
         }
@@ -181,9 +186,9 @@ using EditorAction = std::variant<
 struct EditorModel {
     SceneState scene;
     
-    // History for undo/redo
-    std::vector<SceneState> undo_stack;
-    std::vector<SceneState> redo_stack;
+    // History for undo/redo - using flex_vector for O(1) operations at both ends
+    immer::flex_vector<SceneState> undo_stack;
+    immer::flex_vector<SceneState> redo_stack;
     static constexpr std::size_t max_history = 100;
     
     // Dirty flag for change notification
@@ -249,21 +254,21 @@ public:
     void dispatch(EditorAction action);
     
     // Get current state
-    const EditorModel& get_model() const;
+    [[nodiscard]] const EditorModel& get_model() const;
     
     // Get currently selected object
-    const SceneObject* get_selected_object() const;
+    [[nodiscard]] const SceneObject* get_selected_object() const;
     
     // Create a cursor for a property of the selected object
-    // Returns nullopt if no object is selected or property doesn't exist
-    std::optional<Value> get_property(const std::string& path) const;
+    // Returns null Value if no object is selected or property doesn't exist
+    [[nodiscard]] Value get_property(const std::string& path) const;
     
     // Set property value (shorthand for dispatch(SetProperty))
     void set_property(const std::string& path, Value value);
     
     // Undo/Redo
-    bool can_undo() const;
-    bool can_redo() const;
+    [[nodiscard]] bool can_undo() const;
+    [[nodiscard]] bool can_redo() const;
     void undo();
     void redo();
     
@@ -275,7 +280,7 @@ public:
     
     // Watch for changes (returns unsubscribe function)
     using WatchCallback = std::function<void(const EditorModel&)>;
-    std::function<void()> watch(WatchCallback callback);
+    [[nodiscard]] std::function<void()> watch(WatchCallback callback);
 
 private:
     struct Impl;

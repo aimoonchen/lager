@@ -1,8 +1,11 @@
-// erased_lens.h
-// Scheme 1: Custom type-erased lens using std::function
-//
-// This approach implements type erasure manually using std::function,
-// allowing dynamic lens composition at runtime for JSON-like data.
+// Copyright (c) 2024 chenmou. All rights reserved.
+// Licensed under the MIT License. See LICENSE file in the project root.
+
+/// @file erased_lens.h
+/// @brief Scheme 1: Custom type-erased lens using std::function.
+///
+/// This approach implements type erasure manually using std::function,
+/// allowing dynamic lens composition at runtime for JSON-like data.
 
 #pragma once
 
@@ -40,14 +43,14 @@ public:
     ErasedLens(Getter g, Setter s);
 
     // Get the focused value
-    Value get(const Value& v) const;
+    [[nodiscard]] Value get(const Value& v) const;
     
     // Set the focused value, returns updated whole
-    Value set(Value whole, Value part) const;
+    [[nodiscard]] Value set(Value whole, Value part) const;
     
     // Update focused value using a function (over operation)
     template<typename Fn>
-    Value over(Value whole, Fn&& fn) const
+    [[nodiscard]] Value over(Value whole, Fn&& fn) const
     {
         auto current = getter_(whole);
         auto updated = std::forward<Fn>(fn)(std::move(current));
@@ -55,7 +58,7 @@ public:
     }
 
     // Compose with inner lens (this -> inner)
-    ErasedLens compose(const ErasedLens& inner) const;
+    [[nodiscard]] ErasedLens compose(const ErasedLens& inner) const;
     
     // Composition operator: lhs | rhs composes lenses left-to-right
     // 
@@ -73,13 +76,13 @@ public:
 // ============================================================
 
 // Create a lens that focuses on a map key
-ErasedLens make_key_lens(const std::string& key);
+[[nodiscard]] ErasedLens make_key_lens(const std::string& key);
 
 // Create a lens that focuses on a vector index
-ErasedLens make_index_lens(std::size_t index);
+[[nodiscard]] ErasedLens make_index_lens(std::size_t index);
 
 // Build a composed lens from a path
-ErasedLens path_lens(const Path& path);
+[[nodiscard]] ErasedLens path_lens(const Path& path);
 
 // ============================================================
 // Demo function
