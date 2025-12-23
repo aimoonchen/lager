@@ -26,7 +26,8 @@ set(IMMER_INCLUDE_DIR "${LAGER_INCLUDE_DIR}/third_party/immer" CACHE PATH "Immer
 # zug - Using third_party submodule
 set(ZUG_INCLUDE_DIR "${LAGER_INCLUDE_DIR}/third_party/zug" CACHE PATH "Zug include directory")
 
-set(Qt5_DIR "D:/QT/5.15.2/msvc2019_64/lib/cmake/Qt5" CACHE PATH "Qt5 cmake directory")
+# Qt6 configuration - Update this path to your Qt6 installation
+set(Qt6_DIR "D:/QT/6.8.1/msvc2022_64/lib/cmake/Qt6" CACHE PATH "Qt6 cmake directory")
 
 set(SDL2_DIR "D:/Github/vcpkg/installed/x64-windows/share/sdl2" CACHE PATH "SDL2 cmake directory")
 
@@ -34,7 +35,19 @@ set(SDL2_DIR "D:/Github/vcpkg/installed/x64-windows/share/sdl2" CACHE PATH "SDL2
 # Find Dependencies
 # ============================================================
 
-find_package(Qt5 COMPONENTS Core Concurrent Gui Widgets Qml QuickControls2 QUIET)
+# Find Qt6
+find_package(Qt6 COMPONENTS Core Concurrent Gui Widgets QUIET)
+if(Qt6_FOUND)
+    message(STATUS "Found Qt6: ${Qt6Core_VERSION}")
+
+    # Check for QML components in Qt6
+    find_package(Qt6 COMPONENTS Qml Quick QuickControls2 QUIET)
+    if(Qt6Qml_FOUND AND Qt6Quick_FOUND AND Qt6QuickControls2_FOUND)
+        set(QT_HAS_QML TRUE)
+    else()
+        set(QT_HAS_QML FALSE)
+    endif()
+endif()
 
 # Boost - Use specified path directly, not find_package
 if(NOT EXISTS "${Boost_INCLUDE_DIR}/boost/version.hpp")
@@ -137,24 +150,25 @@ endif()
 # Supports both QML and Widgets modes via EDITOR_USE_QML macro
 # ============================================================
 
-if(Qt5_FOUND)
+if(Qt6_FOUND)
     add_executable(Editor editor_main.cpp)
 
     set_target_properties(Editor PROPERTIES AUTOMOC ON)
 
     target_link_libraries(Editor PRIVATE
         lager_ext
-        Qt5::Core
-        Qt5::Concurrent
-        Qt5::Gui
-        Qt5::Widgets
+        Qt6::Core
+        Qt6::Concurrent
+        Qt6::Gui
+        Qt6::Widgets
     )
 
-    # QML support (if Qml and QuickControls2 are available)
-    if(Qt5Qml_FOUND AND Qt5QuickControls2_FOUND)
+    # QML support
+    if(QT_HAS_QML)
         target_link_libraries(Editor PRIVATE
-            Qt5::Qml
-            Qt5::QuickControls2
+            Qt6::Qml
+            Qt6::Quick
+            Qt6::QuickControls2
         )
         target_compile_definitions(Editor PRIVATE EDITOR_HAS_QML=1)
     endif()
@@ -167,14 +181,14 @@ if(Qt5_FOUND)
         target_compile_options(Editor PRIVATE /W3 /Zc:preprocessor /bigobj /utf-8)
     endif()
 
-    message(STATUS "Editor target configured with Qt support")
-    if(Qt5Qml_FOUND AND Qt5QuickControls2_FOUND)
+    message(STATUS "Editor target configured with Qt6 support")
+    if(QT_HAS_QML)
         message(STATUS "  - QML support: enabled")
     else()
-        message(STATUS "  - QML support: disabled (missing Qt5Qml or Qt5QuickControls2)")
+        message(STATUS "  - QML support: disabled")
     endif()
 else()
-    message(STATUS "Editor target skipped: Qt5 not found")
+    message(STATUS "Editor target skipped: Qt6 not found")
 endif()
 
 # Note: Engine executable already includes SharedValue demo functionality
@@ -209,7 +223,9 @@ message(STATUS "  Boost include: ${Boost_INCLUDE_DIR}")
 message(STATUS "  Immer include: ${IMMER_INCLUDE_DIR}")
 message(STATUS "  Zug include: ${ZUG_INCLUDE_DIR}")
 message(STATUS "  Lager include: ${LAGER_INCLUDE_DIR}")
-if(Qt5_FOUND)
-    message(STATUS "  Qt5 version: ${Qt5Core_VERSION}")
+if(Qt6_FOUND)
+    message(STATUS "  Qt version: ${Qt6Core_VERSION}")
+else()
+    message(STATUS "  Qt6: not found")
 endif()
 message(STATUS "")

@@ -108,21 +108,21 @@ endif()
 # qt examples
 # ===========
 
-# Qt5 路径配置
-set(Qt5_DIR "D:/QT/5.15.2/msvc2019_64/lib/cmake/Qt5" CACHE PATH "Qt5 cmake directory")
+# Qt6 configuration
+set(Qt6_DIR "D:/QT/6.8.1/msvc2022_64/lib/cmake/Qt6" CACHE PATH "Qt6 cmake directory")
 
-find_package(Qt5 COMPONENTS Core Concurrent Qml Gui Widgets QuickControls2 QUIET)
+find_package(Qt6 COMPONENTS Core Concurrent Qml Gui Widgets QuickControls2 QUIET)
 
-# Boost 已在根 CMakeLists.txt 中配置，这里只检查变量是否存在
+# Boost is configured in the root CMakeLists.txt
 set(Boost_FOUND TRUE)
 
-if (Qt5Core_FOUND AND Qt5Concurrent_FOUND AND Qt5Gui_FOUND AND Qt5Widgets_FOUND AND Qt5Qml_FOUND AND Qt5QuickControls2_FOUND AND Boost_FOUND)
+if (Qt6Core_FOUND AND Qt6Concurrent_FOUND AND Qt6Gui_FOUND AND Qt6Widgets_FOUND AND Qt6Qml_FOUND AND Qt6QuickControls2_FOUND AND Boost_FOUND)
   add_executable(todo-qml EXCLUDE_FROM_ALL
     todo/item.cpp
     todo/model.cpp
     todo/qml/main.cpp)
   set_target_properties(todo-qml PROPERTIES AUTOMOC YES)
-  target_link_libraries(todo-qml lager-example Qt5::Core Qt5::Gui Qt5::Widgets Qt5::Qml Qt5::QuickControls2)
+  target_link_libraries(todo-qml lager-example Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Qml Qt6::QuickControls2)
   target_compile_definitions(todo-qml PRIVATE
     LAGER_TODO_QML_DIR="${CMAKE_CURRENT_SOURCE_DIR}/todo/qml")
   add_dependencies(examples todo-qml)
@@ -133,7 +133,7 @@ if (Qt5Core_FOUND AND Qt5Concurrent_FOUND AND Qt5Gui_FOUND AND Qt5Widgets_FOUND 
     todo/app.cpp
     todo/qml-redux/main.cpp)
   set_target_properties(todo-qml-redux PROPERTIES AUTOMOC YES)
-  target_link_libraries(todo-qml-redux lager-example Qt5::Core Qt5::Gui Qt5::Widgets Qt5::Qml Qt5::QuickControls2)
+  target_link_libraries(todo-qml-redux lager-example Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Qml Qt6::QuickControls2)
   target_compile_definitions(todo-qml-redux PRIVATE
     LAGER_TODO_QML_DIR="${CMAKE_CURRENT_SOURCE_DIR}/todo/qml-redux")
   add_dependencies(examples todo-qml-redux)
@@ -141,7 +141,7 @@ if (Qt5Core_FOUND AND Qt5Concurrent_FOUND AND Qt5Gui_FOUND AND Qt5Widgets_FOUND 
   add_executable(snake-qml EXCLUDE_FROM_ALL
     snake/model.cpp snake/qml/main.cpp snake/qml/qmodel.cpp)
   set_target_properties(snake-qml PROPERTIES AUTOMOC YES)
-  target_link_libraries(snake-qml lager-example Qt5::Core Qt5::Concurrent Qt5::Gui Qt5::Widgets Qt5::Qml Qt5::QuickControls2)
+  target_link_libraries(snake-qml lager-example Qt6::Core Qt6::Concurrent Qt6::Gui Qt6::Widgets Qt6::Qml Qt6::QuickControls2)
   target_include_directories(snake-qml PRIVATE ${Boost_INCLUDE_DIRS})
   target_compile_definitions(snake-qml PRIVATE
     LAGER_SNAKE_QML_DIR="${CMAKE_CURRENT_SOURCE_DIR}/snake/qml")

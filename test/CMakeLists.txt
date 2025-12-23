@@ -2,10 +2,10 @@
 #  Utils
 #  =====
 
-# Qt5 路径配置
-set(Qt5_DIR "D:/QT/5.15.2/msvc2019_64/lib/cmake/Qt5" CACHE PATH "Qt5 cmake directory")
+# Qt6 configuration
+set(Qt6_DIR "C:/Qt/6.8.1/msvc2022_64/lib/cmake/Qt6" CACHE PATH "Qt6 cmake directory")
 
-find_package(Qt5 COMPONENTS Core Concurrent Qml Quick QUIET)
+find_package(Qt6 COMPONENTS Core Concurrent Qml Quick QUIET)
 
 function(lager_target_name_for out_target out_file file)
   get_filename_component(_extension ${_file} EXT)
@@ -27,16 +27,16 @@ function(lager_get_qt_libs out_qt_required out_qt_libs target)
   string(FIND ${target} "qt" _qt_required)
   if(${_qt_required} GREATER 0)
     set(${out_qt_required} TRUE PARENT_SCOPE)
-    if(${Qt5Core_FOUND} AND ${Qt5Concurrent_FOUND})
-      set(${out_qt_libs} PRIVATE Qt5::Core Qt5::Concurrent PARENT_SCOPE)
+    if(${Qt6Core_FOUND} AND ${Qt6Concurrent_FOUND})
+      set(${out_qt_libs} PRIVATE Qt6::Core Qt6::Concurrent PARENT_SCOPE)
     endif()
   endif()
 
   string(FIND ${target} "qml" _qml_required)
   if(${_qml_required} GREATER 0)
     set(${out_required} TRUE PARENT_SCOPE)
-    if(${Qt5Core_FOUND} AND ${Qt5Quick_FOUND})
-      set(${out_qt_libs} PRIVATE Qt5::Core Qt5::Quick PARENT_SCOPE)
+    if(${Qt6Core_FOUND} AND ${Qt6Quick_FOUND})
+      set(${out_qt_libs} PRIVATE Qt6::Core Qt6::Quick PARENT_SCOPE)
     endif()
   endif()
 endfunction()
@@ -44,7 +44,7 @@ endfunction()
 #  Targets
 #  =======
 
-find_package(Qt5 COMPONENTS Core Concurrent)
+find_package(Qt6 COMPONENTS Core Concurrent QUIET)
 
 add_custom_target(tests COMMENT "Build all the unit tests.")
 add_dependencies(check tests)

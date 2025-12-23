@@ -104,7 +104,7 @@ QVariant valueToQVariant(const Value& val) {
 }
 
 Value qvariantToValue(const QVariant& var) {
-    switch (static_cast<QMetaType::Type>(var.type())) {
+    switch (var.typeId()) {
         case QMetaType::UnknownType:
             return Value{};
         case QMetaType::Bool:
@@ -868,7 +868,7 @@ int main(int argc, char** argv)
     // TODO: Create QML version of EditorApp class
 
     engine.load(QUrl::fromLocalFile(
-        QString(LAGER_PATHLENS_QML_DIR) + "/main.qml"));
+        QString(LAGER_EXT_QML_DIR) + "/main.qml"));
 
     if (engine.rootObjects().isEmpty()) {
         std::cerr << "[Editor] Failed to load QML!" << std::endl;
