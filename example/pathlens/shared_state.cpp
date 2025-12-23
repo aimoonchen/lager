@@ -4,6 +4,7 @@
 // This implementation uses Boost.Interprocess for cross-platform shared memory
 
 #include "shared_state.h"
+#include "path_utils.h"
 
 #include <boost/interprocess/shared_memory_object.hpp>
 #include <boost/interprocess/mapped_region.hpp>
@@ -908,93 +909,24 @@ DiffResult decode_diff(const ByteBuffer& data) {
 // Apply Diff
 // ============================================================
 
-// Helper to set value at path
-static Value set_at_path(const Value& root, const Path& path, const Value& value) {
-    if (path.empty()) {
-        return value;
-    }
-    
-    // Use recursive approach
-    const auto& first = path[0];
-    Path rest(path.begin() + 1, path.end());
-    
-    if (auto* key = std::get_if<std::string>(&first)) {
-        Value child = root.at(*key);
-        Value new_child = set_at_path(child, rest, value);
-        return root.set(*key, new_child);
-    } else if (auto* idx = std::get_if<std::size_t>(&first)) {
-        Value child = root.at(*idx);
-        Value new_child = set_at_path(child, rest, value);
-        return root.set(*idx, new_child);
-    }
-    
-    return root;
-}
-
-// Helper to erase a key from a map
-static Value erase_key_from_map(const Value& val, const std::string& key) {
-    if (auto* m = val.get_if<ValueMap>()) {
-        return m->erase(key);
-    }
-    return val;
-}
-
-// Helper to remove value at path
-// For maps: actually erases the key
-// For vectors/arrays: sets to null (cannot shrink without reindexing)
-static Value remove_at_path(const Value& root, const Path& path) {
-    if (path.empty()) {
-        return Value{};  // Remove entire root
-    }
-    
-    // If last element is a string key, we can erase from map
-    if (path.size() == 1) {
-        if (auto* key = std::get_if<std::string>(&path[0])) {
-            return erase_key_from_map(root, *key);
-        }
-        // For index, set to null (cannot truly remove without reindexing)
-        return set_at_path(root, path, Value{});
-    }
-    
-    // Navigate to parent and erase from there
-    Path parent_path(path.begin(), path.end() - 1);
-    const auto& last = path.back();
-    
-    if (auto* key = std::get_if<std::string>(&last)) {
-        // Get parent, erase key from it, set parent back
-        Value parent = root;
-        for (const auto& elem : parent_path) {
-            if (auto* k = std::get_if<std::string>(&elem)) {
-                parent = parent.at(*k);
-            } else if (auto* idx = std::get_if<std::size_t>(&elem)) {
-                parent = parent.at(*idx);
-            }
-        }
-        
-        Value new_parent = erase_key_from_map(parent, *key);
-        return set_at_path(root, parent_path, new_parent);
-    }
-    
-    // For index removal, set to null
-    return set_at_path(root, path, Value{});
-}
+// Uses path_utils.h functions: set_at_path_direct, erase_at_path_direct
 
 Value apply_diff(const Value& base, const DiffResult& diff) {
     Value result = base;
     
-    // Apply removals first (set to null)
+    // Apply removals first (erase from maps or set to null for arrays)
     for (const auto& [path, _] : diff.removed) {
-        result = remove_at_path(result, path);
+        result = erase_at_path_direct(result, path);
     }
     
     // Apply modifications
     for (const auto& mod : diff.modified) {
-        result = set_at_path(result, mod.path, mod.new_value);
+        result = set_at_path_direct(result, mod.path, mod.new_value);
     }
     
     // Apply additions
     for (const auto& [path, value] : diff.added) {
-        result = set_at_path(result, path, value);
+        result = set_at_path_direct(result, path, value);
     }
     
     return result;

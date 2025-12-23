@@ -2,6 +2,7 @@
 // Implementation of custom type-erased lens (Scheme 1)
 
 #include "erased_lens.h"
+#include "path_utils.h"
 #include <iostream>
 
 namespace immer_lens {
@@ -120,26 +121,31 @@ ErasedLens make_index_lens(std::size_t index)
         }};
 }
 
+// ============================================================
+// Optimized Path Lens Implementation
+// 
+// Uses shared path_utils.h for direct traversal functions,
+// avoiding code duplication with lager_lens.cpp
+// ============================================================
+
 ErasedLens path_lens(const Path& path)
 {
-    ErasedLens result; // Identity lens
-
-    for (const auto& elem : path) {
-        ErasedLens current = std::visit(
-            [](const auto& value) -> ErasedLens {
-                using T = std::decay_t<decltype(value)>;
-                if constexpr (std::is_same_v<T, std::string>) {
-                    return make_key_lens(value);
-                } else {
-                    return make_index_lens(value);
-                }
-            },
-            elem);
-
-        result = result.compose(current);
+    if (path.empty()) {
+        return ErasedLens{}; // Identity lens
     }
-
-    return result;
+    
+    // OPTIMIZED: Single lens with direct traversal instead of N nested compositions
+    // Uses path_utils.h functions for efficient path access
+    return ErasedLens{
+        // Getter: Single-pass traversal using path_utils
+        [path](const Value& root) -> Value {
+            return get_at_path_direct(root, path);
+        },
+        // Setter: Recursive rebuild using path_utils
+        [path](Value root, Value new_val) -> Value {
+            return set_at_path_direct(root, path, std::move(new_val));
+        }
+    };
 }
 
 // ============================================================

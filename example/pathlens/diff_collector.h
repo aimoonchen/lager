@@ -39,12 +39,14 @@ class RecursiveDiffCollector {
 private:
     std::vector<DiffEntry> diffs_;
 
-    void diff_value(const Value& old_val, const Value& new_val, Path current_path);
-    void diff_map(const ValueMap& old_map, const ValueMap& new_map, Path current_path);
-    void diff_vector(const ValueVector& old_vec, const ValueVector& new_vec, Path current_path);
-    void collect_entries(const Value& val, Path current_path, bool is_add);
-    void collect_removed(const Value& val, Path current_path);
-    void collect_added(const Value& val, Path current_path);
+    // OPTIMIZATION: Pass Path by reference to avoid copying.
+    // We use push_back/pop_back pattern instead of creating new Path objects.
+    void diff_value(const Value& old_val, const Value& new_val, Path& current_path);
+    void diff_map(const ValueMap& old_map, const ValueMap& new_map, Path& current_path);
+    void diff_vector(const ValueVector& old_vec, const ValueVector& new_vec, Path& current_path);
+    void collect_entries(const Value& val, Path& current_path, bool is_add);
+    void collect_removed(const Value& val, Path& current_path);
+    void collect_added(const Value& val, Path& current_path);
 
 public:
     // Main entry point: compare two Values

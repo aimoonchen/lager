@@ -12,21 +12,60 @@ namespace immer_lens {
 // JSON Pointer parsing
 // ============================================================
 
+namespace {
+
+/// Unescape a JSON Pointer segment according to RFC 6901
+/// ~1 -> /, ~0 -> ~
+std::string unescape_segment(std::string_view segment)
+{
+    std::string result;
+    result.reserve(segment.size());
+    
+    for (size_t i = 0; i < segment.size(); ++i) {
+        if (segment[i] == '~' && i + 1 < segment.size()) {
+            if (segment[i + 1] == '1') {
+                result += '/';
+                ++i;
+                continue;
+            } else if (segment[i + 1] == '0') {
+                result += '~';
+                ++i;
+                continue;
+            }
+        }
+        result += segment[i];
+    }
+    
+    return result;
+}
+
+/// Check if a string represents a valid array index
+bool is_array_index(const std::string& s)
+{
+    if (s.empty() || s == "-") {  // "-" is special case for "end of array"
+        return false;
+    }
+    return std::ranges::all_of(s, [](unsigned char c) { return std::isdigit(c); });
+}
+
+} // anonymous namespace
+
 Path parse_json_pointer(std::string_view pointer)
 {
-    Path result;
-    
     // Empty pointer refers to root
     if (pointer.empty()) {
-        return result;
+        return Path{};
     }
     
     // JSON Pointer must start with '/'
     if (pointer[0] != '/') {
         std::cerr << "[parse_json_pointer] Invalid pointer, must start with '/': " 
                   << pointer << "\n";
-        return result;
+        return Path{};
     }
+    
+    // Use PathBuilder for fluent path construction
+    PathBuilder builder;
     
     // Skip leading '/'
     pointer = pointer.substr(1);
@@ -39,35 +78,13 @@ Path parse_json_pointer(std::string_view pointer)
                                     ? pointer 
                                     : pointer.substr(0, pos);
         
-        // Unescape: ~1 -> /, ~0 -> ~
-        std::string unescaped;
-        for (size_t i = 0; i < segment.size(); ++i) {
-            if (segment[i] == '~' && i + 1 < segment.size()) {
-                if (segment[i + 1] == '1') {
-                    unescaped += '/';
-                    ++i;
-                    continue;
-                } else if (segment[i + 1] == '0') {
-                    unescaped += '~';
-                    ++i;
-                    continue;
-                }
-            }
-            unescaped += segment[i];
-        }
+        // Unescape and add to path
+        std::string unescaped = unescape_segment(segment);
         
-        // Try to parse as integer index
-        // Note: "-" is a special case in RFC 6901 meaning "end of array" (for append)
-        // We treat it as a string key; callers can handle it specially if needed
-        bool is_index = !unescaped.empty() && 
-                        unescaped != "-" &&  // "-" is not an index
-                        std::ranges::all_of(unescaped, 
-                                           [](unsigned char c) { return std::isdigit(c); });
-        
-        if (is_index) {
-            result.push_back(static_cast<size_t>(std::stoull(unescaped)));
+        if (is_array_index(unescaped)) {
+            builder = std::move(builder).index(static_cast<size_t>(std::stoull(unescaped)));
         } else {
-            result.push_back(unescaped);
+            builder = std::move(builder).key(std::move(unescaped));
         }
         
         // Move to next segment
@@ -77,7 +94,7 @@ Path parse_json_pointer(std::string_view pointer)
         pointer = pointer.substr(pos + 1);
     }
     
-    return result;
+    return builder.path();
 }
 
 std::string path_to_json_pointer(const Path& path)

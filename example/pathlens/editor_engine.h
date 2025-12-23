@@ -28,13 +28,14 @@
 #include <lager/lenses/at.hpp>
 
 #include <immer/flex_vector.hpp>
+#include <immer/map.hpp>
 
 #include <functional>
+#include <map>
 #include <memory>
 #include <optional>
 #include <string>
 #include <vector>
-#include <map>
 
 namespace immer_lens {
 
@@ -115,12 +116,12 @@ struct SceneObject {
     std::vector<std::string> children;  // Child object IDs
 };
 
-// Complete scene state
+// Complete scene state - using immer::map for structural sharing benefits
 struct SceneState {
-    std::map<std::string, SceneObject> objects;  // All objects by ID
-    std::string root_id;                          // Root object ID
-    std::string selected_id;                      // Currently selected object
-    uint64_t version = 0;                         // State version
+    immer::map<std::string, SceneObject> objects;  // All objects by ID (immutable)
+    std::string root_id;                            // Root object ID
+    std::string selected_id;                        // Currently selected object
+    uint64_t version = 0;                           // State version
 };
 
 // ============================================================

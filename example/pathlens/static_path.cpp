@@ -90,42 +90,44 @@ struct AppConfigPaths {
 // ============================================================
 
 static Value create_sample_state() {
-    // Create users
-    ValueVector users;
+    // Create users using Builder API for O(n) construction
+    Value user0 = MapBuilder()
+        .set("name", Value{"Alice"})
+        .set("age", Value{30})
+        .set("email", Value{"alice@example.com"})
+        .finish();
     
-    // User 0
-    ValueMap user0;
-    user0 = user0.set("name", immer::box<Value>{Value{"Alice"}});
-    user0 = user0.set("age", immer::box<Value>{Value{30}});
-    user0 = user0.set("email", immer::box<Value>{Value{"alice@example.com"}});
-    users = users.push_back(immer::box<Value>{Value{user0}});
+    Value user1 = MapBuilder()
+        .set("name", Value{"Bob"})
+        .set("age", Value{25})
+        .set("email", Value{"bob@example.com"})
+        .finish();
     
-    // User 1
-    ValueMap user1;
-    user1 = user1.set("name", immer::box<Value>{Value{"Bob"}});
-    user1 = user1.set("age", immer::box<Value>{Value{25}});
-    user1 = user1.set("email", immer::box<Value>{Value{"bob@example.com"}});
-    users = users.push_back(immer::box<Value>{Value{user1}});
+    Value user2 = MapBuilder()
+        .set("name", Value{"Charlie"})
+        .set("age", Value{35})
+        .set("email", Value{"charlie@example.com"})
+        .finish();
     
-    // User 2
-    ValueMap user2;
-    user2 = user2.set("name", immer::box<Value>{Value{"Charlie"}});
-    user2 = user2.set("age", immer::box<Value>{Value{35}});
-    user2 = user2.set("email", immer::box<Value>{Value{"charlie@example.com"}});
-    users = users.push_back(immer::box<Value>{Value{user2}});
+    // Create users array using Builder API
+    Value users = VectorBuilder()
+        .push_back(user0)
+        .push_back(user1)
+        .push_back(user2)
+        .finish();
     
-    // Create window config
-    ValueMap window;
-    window = window.set("width", immer::box<Value>{Value{1920}});
-    window = window.set("height", immer::box<Value>{Value{1080}});
+    // Create window config using Builder API
+    Value window = MapBuilder()
+        .set("width", Value{1920})
+        .set("height", Value{1080})
+        .finish();
     
-    // Create root state
-    ValueMap state;
-    state = state.set("title", immer::box<Value>{Value{"My Application"}});
-    state = state.set("users", immer::box<Value>{Value{users}});
-    state = state.set("window", immer::box<Value>{Value{window}});
-    
-    return Value{state};
+    // Create root state using Builder API
+    return MapBuilder()
+        .set("title", Value{"My Application"})
+        .set("users", users)
+        .set("window", window)
+        .finish();
 }
 
 // ============================================================

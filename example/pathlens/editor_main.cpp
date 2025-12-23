@@ -755,9 +755,10 @@ private:
         objectTree_->setScene(model.scene);
         
         if (!model.scene.selected_id.empty()) {
-            auto it = model.scene.objects.find(model.scene.selected_id);
-            if (it != model.scene.objects.end()) {
-                propertyPanel_->setObject(&it->second, 
+            // immer::map::find() returns const T* (pointer to value), not iterator
+            const SceneObject* obj_ptr = model.scene.objects.find(model.scene.selected_id);
+            if (obj_ptr != nullptr) {
+                propertyPanel_->setObject(obj_ptr, 
                     [this](const std::string& path, Value val) {
                         store_.dispatch(actions::SetProperty{path, std::move(val)});
                     });

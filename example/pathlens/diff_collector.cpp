@@ -14,7 +14,8 @@ namespace immer_lens {
 void RecursiveDiffCollector::diff(const Value& old_val, const Value& new_val)
 {
     diffs_.clear();
-    diff_value(old_val, new_val, {});
+    Path root_path;
+    diff_value(old_val, new_val, root_path);
 }
 
 const std::vector<DiffEntry>& RecursiveDiffCollector::get_diffs() const
@@ -57,7 +58,7 @@ void RecursiveDiffCollector::print_diffs() const
     }
 }
 
-void RecursiveDiffCollector::diff_value(const Value& old_val, const Value& new_val, Path current_path)
+void RecursiveDiffCollector::diff_value(const Value& old_val, const Value& new_val, Path& current_path)
 {
     // Fast path: if types differ, record as Change
     if (old_val.data.index() != new_val.data.index()) [[unlikely]] {
@@ -91,20 +92,21 @@ void RecursiveDiffCollector::diff_value(const Value& old_val, const Value& new_v
     }, old_val.data);
 }
 
-void RecursiveDiffCollector::diff_map(const ValueMap& old_map, const ValueMap& new_map, Path current_path)
+void RecursiveDiffCollector::diff_map(const ValueMap& old_map, const ValueMap& new_map, Path& current_path)
 {
+    // OPTIMIZED: Use push_back/pop_back pattern to avoid Path copying
     auto map_differ = immer::make_differ(
         // added
         [&](const std::pair<const std::string, ValueBox>& added_kv) {
-            Path child_path = current_path;
-            child_path.push_back(added_kv.first);
-            collect_added(*added_kv.second, child_path);
+            current_path.push_back(added_kv.first);
+            collect_added(*added_kv.second, current_path);
+            current_path.pop_back();
         },
         // removed
         [&](const std::pair<const std::string, ValueBox>& removed_kv) {
-            Path child_path = current_path;
-            child_path.push_back(removed_kv.first);
-            collect_removed(*removed_kv.second, child_path);
+            current_path.push_back(removed_kv.first);
+            collect_removed(*removed_kv.second, current_path);
+            current_path.pop_back();
         },
         // changed (retained key)
         [&](const std::pair<const std::string, ValueBox>& old_kv,
@@ -113,71 +115,71 @@ void RecursiveDiffCollector::diff_map(const ValueMap& old_map, const ValueMap& n
             if (old_kv.second.get() == new_kv.second.get()) [[likely]] {
                 return; // Same pointer, unchanged
             }
-            Path child_path = current_path;
-            child_path.push_back(old_kv.first);
-            diff_value(*old_kv.second, *new_kv.second, child_path);
+            current_path.push_back(old_kv.first);
+            diff_value(*old_kv.second, *new_kv.second, current_path);
+            current_path.pop_back();
         }
     );
 
     immer::diff(old_map, new_map, map_differ);
 }
 
-void RecursiveDiffCollector::diff_vector(const ValueVector& old_vec, const ValueVector& new_vec, Path current_path)
+void RecursiveDiffCollector::diff_vector(const ValueVector& old_vec, const ValueVector& new_vec, Path& current_path)
 {
     const size_t old_size = old_vec.size();
     const size_t new_size = new_vec.size();
     const size_t common_size = std::min(old_size, new_size);
     
+    // OPTIMIZED: Use push_back/pop_back pattern to avoid Path copying
     // Compare common indices
     for (size_t i = 0; i < common_size; ++i) {
         const auto& old_box = old_vec[i];
         const auto& new_box = new_vec[i];
         
         // Optimization: immer::box pointer comparison - O(1)
-        // Note: Use .get() for pointer comparison, not operator==
-        // operator== compares content, .get() compares addresses
         if (old_box.get() == new_box.get()) [[likely]] {
             continue;
         }
         
-        Path child_path = current_path;
-        child_path.push_back(i);
-        diff_value(*old_box, *new_box, child_path);
+        current_path.push_back(i);
+        diff_value(*old_box, *new_box, current_path);
+        current_path.pop_back();
     }
     
     // Removed tail elements
     for (size_t i = common_size; i < old_size; ++i) {
-        Path child_path = current_path;
-        child_path.push_back(i);
-        collect_removed(*old_vec[i], child_path);
+        current_path.push_back(i);
+        collect_removed(*old_vec[i], current_path);
+        current_path.pop_back();
     }
     
     // Added tail elements
     for (size_t i = common_size; i < new_size; ++i) {
-        Path child_path = current_path;
-        child_path.push_back(i);
-        collect_added(*new_vec[i], child_path);
+        current_path.push_back(i);
+        collect_added(*new_vec[i], current_path);
+        current_path.pop_back();
     }
 }
 
 // Helper: Recursively collect entries for add/remove operations
+// OPTIMIZED: Use push_back/pop_back pattern to avoid Path copying
 // is_add: true for added entries, false for removed entries
-void RecursiveDiffCollector::collect_entries(const Value& val, Path current_path, bool is_add)
+void RecursiveDiffCollector::collect_entries(const Value& val, Path& current_path, bool is_add)
 {
     std::visit([&](const auto& arg) {
         using T = std::decay_t<decltype(arg)>;
         if constexpr (std::is_same_v<T, ValueMap>) {
             for (const auto& [k, v] : arg) {
-                Path child_path = current_path;
-                child_path.push_back(k);
-                collect_entries(*v, child_path, is_add);
+                current_path.push_back(k);
+                collect_entries(*v, current_path, is_add);
+                current_path.pop_back();
             }
         }
         else if constexpr (std::is_same_v<T, ValueVector>) {
             for (size_t i = 0; i < arg.size(); ++i) {
-                Path child_path = current_path;
-                child_path.push_back(i);
-                collect_entries(*arg[i], child_path, is_add);
+                current_path.push_back(i);
+                collect_entries(*arg[i], current_path, is_add);
+                current_path.pop_back();
             }
         }
         else if constexpr (!std::is_same_v<T, std::monostate>) {
@@ -192,12 +194,12 @@ void RecursiveDiffCollector::collect_entries(const Value& val, Path current_path
     }, val.data);
 }
 
-void RecursiveDiffCollector::collect_removed(const Value& val, Path current_path)
+void RecursiveDiffCollector::collect_removed(const Value& val, Path& current_path)
 {
     collect_entries(val, current_path, false);
 }
 
-void RecursiveDiffCollector::collect_added(const Value& val, Path current_path)
+void RecursiveDiffCollector::collect_added(const Value& val, Path& current_path)
 {
     collect_entries(val, current_path, true);
 }

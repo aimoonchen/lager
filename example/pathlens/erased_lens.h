@@ -15,15 +15,81 @@
 namespace immer_lens {
 
 // ============================================================
-// ErasedLens class
+// InlineLens - Lightweight lens without std::function overhead
+// 
+// For performance-critical code paths, InlineLens avoids the 
+// std::function indirection by storing the getter/setter directly
+// as template parameters. This enables inlining and avoids heap
+// allocations for small lambdas.
+// ============================================================
+
+template<typename Getter, typename Setter>
+class InlineLens {
+public:
+    constexpr InlineLens(Getter g, Setter s) 
+        : getter_(std::move(g)), setter_(std::move(s)) {}
+    
+    [[nodiscard]] Value get(const Value& v) const { return getter_(v); }
+    [[nodiscard]] Value set(Value whole, Value part) const { 
+        return setter_(std::move(whole), std::move(part)); 
+    }
+    
+    template<typename Fn>
+    [[nodiscard]] Value over(Value whole, Fn&& fn) const {
+        return set(whole, std::forward<Fn>(fn)(get(whole)));
+    }
+    
+    /// Compose with another InlineLens
+    /// Uses public interface (get/set) for better encapsulation
+    template<typename G2, typename S2>
+    [[nodiscard]] auto compose(const InlineLens<G2, S2>& inner) const {
+        // Capture copies of both lenses
+        auto outer = *this;
+        auto inner_copy = inner;
+        
+        return make_inline_lens(
+            [outer, inner_copy](const Value& v) { 
+                return inner_copy.get(outer.get(v)); 
+            },
+            [outer, inner_copy](Value whole, Value new_val) {
+                auto outer_part = outer.get(whole);
+                auto new_outer = inner_copy.set(std::move(outer_part), std::move(new_val));
+                return outer.set(std::move(whole), std::move(new_outer));
+            }
+        );
+    }
+
+private:
+    template<typename G, typename S> friend auto make_inline_lens(G, S);
+    
+    Getter getter_;
+    Setter setter_;
+};
+
+/// Factory function for InlineLens with type deduction
+template<typename Getter, typename Setter>
+[[nodiscard]] auto make_inline_lens(Getter g, Setter s) {
+    return InlineLens<Getter, Setter>(std::move(g), std::move(s));
+}
+
+/// Identity InlineLens
+inline auto inline_identity_lens() {
+    return make_inline_lens(
+        [](const Value& v) { return v; },
+        [](Value, Value v) { return v; }
+    );
+}
+
+// ============================================================
+// ErasedLens class (Optimized)
 // 
 // A type-erased lens that uses std::function for get/set operations.
 // Supports dynamic path composition via the compose() method and | operator.
 // 
-// Key features:
-// 1. Uses std::function for type erasure (may benefit from SBO)
-// 2. Supports | operator for composition (similar to zug::comp)
-// 3. Provides over() operation for functional updates
+// Optimizations:
+// 1. Path-based lens uses direct traversal instead of nested composition
+// 2. Provides conversion from InlineLens for type erasure when needed
+// 3. Caches getter_/setter_ to avoid repeated function object creation
 // ============================================================
 class ErasedLens
 {
@@ -41,6 +107,13 @@ public:
 
     // Custom lens with provided get/set functions
     ErasedLens(Getter g, Setter s);
+    
+    // Construct from InlineLens (type-erase an inline lens)
+    template<typename G, typename S>
+    ErasedLens(const InlineLens<G, S>& inline_lens)
+        : getter_([inline_lens](const Value& v) { return inline_lens.get(v); })
+        , setter_([inline_lens](Value w, Value p) { return inline_lens.set(std::move(w), std::move(p)); })
+    {}
 
     // Get the focused value
     [[nodiscard]] Value get(const Value& v) const;

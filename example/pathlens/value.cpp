@@ -171,32 +171,35 @@ std::string path_to_string(const Path& path)
 
 Value create_sample_data()
 {
-    // Create user 1
-    ValueMap user1;
-    user1 = user1.set("name", ValueBox{Value{std::string{"Alice"}}});
-    user1 = user1.set("age", ValueBox{Value{25}});
+    // Create user 1 using Builder API for O(n) construction
+    Value user1 = MapBuilder()
+        .set("name", Value{std::string{"Alice"}})
+        .set("age", Value{25})
+        .finish();
     
-    // Create user 2
-    ValueMap user2;
-    user2 = user2.set("name", ValueBox{Value{std::string{"Bob"}}});
-    user2 = user2.set("age", ValueBox{Value{30}});
+    // Create user 2 using Builder API
+    Value user2 = MapBuilder()
+        .set("name", Value{std::string{"Bob"}})
+        .set("age", Value{30})
+        .finish();
     
-    // Create users array
-    ValueVector users;
-    users = users.push_back(ValueBox{Value{user1}});
-    users = users.push_back(ValueBox{Value{user2}});
+    // Create users array using Builder API
+    Value users = VectorBuilder()
+        .push_back(user1)
+        .push_back(user2)
+        .finish();
     
-    // Create config
-    ValueMap config;
-    config = config.set("version", ValueBox{Value{1}});
-    config = config.set("theme", ValueBox{Value{std::string{"dark"}}});
+    // Create config using Builder API
+    Value config = MapBuilder()
+        .set("version", Value{1})
+        .set("theme", Value{std::string{"dark"}})
+        .finish();
     
-    // Create root
-    ValueMap root;
-    root = root.set("users", ValueBox{Value{users}});
-    root = root.set("config", ValueBox{Value{config}});
-    
-    return Value{root};
+    // Create root using Builder API
+    return MapBuilder()
+        .set("users", users)
+        .set("config", config)
+        .finish();
 }
 
 // ============================================================
@@ -485,14 +488,15 @@ Value deserialize_value(ByteReader& r) {
         }
         
         case TypeTag::Array: {
-            // Note: immer::array lacks push_back/transient, so deserialize as vector
+            // Deserialize as immer::array to preserve type information
+            // Build array by pushing back elements one by one
             uint32_t count = r.read_u32();
-            auto transient = ValueVector{}.transient();
+            ValueArray arr;
             for (uint32_t i = 0; i < count; ++i) {
                 Value val = deserialize_value(r);
-                transient.push_back(ValueBox{std::move(val)});
+                arr = arr.push_back(ValueBox{std::move(val)});
             }
-            return Value{transient.persistent()};
+            return Value{arr};
         }
         
         case TypeTag::Table: {

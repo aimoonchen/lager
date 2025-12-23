@@ -2,6 +2,7 @@
 // Implementation of Editor-Engine Cross-Process State Management
 
 #include "editor_engine.h"
+#include "path_utils.h"
 #include <iostream>
 #include <sstream>
 
@@ -22,44 +23,9 @@ static Path parse_property_path(const std::string& path_str) {
     return result;
 }
 
-// ============================================================
-// Helper: Get value at path from a Value
-// ============================================================
-static Value get_value_at_path(const Value& root, const Path& path) {
-    Value current = root;
-    for (const auto& elem : path) {
-        if (auto* key = std::get_if<std::string>(&elem)) {
-            current = current.at(*key);
-        } else if (auto* idx = std::get_if<std::size_t>(&elem)) {
-            current = current.at(*idx);
-        }
-    }
-    return current;
-}
-
-// ============================================================
-// Helper: Set value at path in a Value (immutable)
-// ============================================================
-static Value set_value_at_path(const Value& root, const Path& path, const Value& value) {
-    if (path.empty()) {
-        return value;
-    }
-    
-    const auto& first = path[0];
-    Path rest(path.begin() + 1, path.end());
-    
-    if (auto* key = std::get_if<std::string>(&first)) {
-        Value child = root.at(*key);
-        Value new_child = set_value_at_path(child, rest, value);
-        return root.set(*key, new_child);
-    } else if (auto* idx = std::get_if<std::size_t>(&first)) {
-        Value child = root.at(*idx);
-        Value new_child = set_value_at_path(child, rest, value);
-        return root.set(*idx, new_child);
-    }
-    
-    return root;
-}
+// Use shared path_utils.h functions instead of duplicating code
+// get_value_at_path -> get_at_path_direct
+// set_value_at_path -> set_at_path_direct
 
 // ============================================================
 // Editor Reducer Implementation
@@ -71,7 +37,8 @@ EditorModel editor_update(EditorModel model, EditorAction action) {
         
         if constexpr (std::is_same_v<T, actions::SelectObject>) {
             // Select object for editing
-            if (model.scene.objects.find(act.object_id) != model.scene.objects.end()) {
+            // immer::map::find() returns const T* (pointer), not iterator
+            if (model.scene.objects.find(act.object_id) != nullptr) {
                 model.scene.selected_id = act.object_id;
             }
             return model;
@@ -82,8 +49,9 @@ EditorModel editor_update(EditorModel model, EditorAction action) {
                 return model;
             }
             
-            auto it = model.scene.objects.find(model.scene.selected_id);
-            if (it == model.scene.objects.end()) {
+            // immer::map::find() returns const T* (pointer to value), not iterator
+            const SceneObject* obj_ptr = model.scene.objects.find(model.scene.selected_id);
+            if (obj_ptr == nullptr) {
                 return model;
             }
             
@@ -94,11 +62,11 @@ EditorModel editor_update(EditorModel model, EditorAction action) {
             }
             model.redo_stack = immer::flex_vector<SceneState>{};  // Clear redo stack
             
-            // Update property
+            // Update property using immer::map::set() for immutable update
             Path path = parse_property_path(act.property_path);
-            SceneObject updated_obj = it->second;
-            updated_obj.data = set_value_at_path(updated_obj.data, path, act.new_value);
-            model.scene.objects[model.scene.selected_id] = updated_obj;
+            SceneObject updated_obj = *obj_ptr;
+            updated_obj.data = set_at_path_direct(updated_obj.data, path, act.new_value);
+            model.scene.objects = model.scene.objects.set(model.scene.selected_id, updated_obj);
             model.scene.version++;
             model.dirty = true;
             
@@ -110,8 +78,9 @@ EditorModel editor_update(EditorModel model, EditorAction action) {
                 return model;
             }
             
-            auto it = model.scene.objects.find(model.scene.selected_id);
-            if (it == model.scene.objects.end()) {
+            // immer::map::find() returns const T* (pointer to value), not iterator
+            const SceneObject* obj_ptr = model.scene.objects.find(model.scene.selected_id);
+            if (obj_ptr == nullptr) {
                 return model;
             }
             
@@ -122,13 +91,13 @@ EditorModel editor_update(EditorModel model, EditorAction action) {
             }
             model.redo_stack = immer::flex_vector<SceneState>{};  // Clear redo stack
             
-            // Update all properties
-            SceneObject updated_obj = it->second;
+            // Update all properties using immer::map::set() for immutable update
+            SceneObject updated_obj = *obj_ptr;
             for (const auto& [path_str, value] : act.updates) {
                 Path path = parse_property_path(path_str);
-                updated_obj.data = set_value_at_path(updated_obj.data, path, value);
+                updated_obj.data = set_at_path_direct(updated_obj.data, path, value);
             }
-            model.scene.objects[model.scene.selected_id] = updated_obj;
+            model.scene.objects = model.scene.objects.set(model.scene.selected_id, updated_obj);
             model.scene.version++;
             model.dirty = true;
             
@@ -178,14 +147,17 @@ EditorModel editor_update(EditorModel model, EditorAction action) {
             model.undo_stack = model.undo_stack.push_back(model.scene);
             model.redo_stack = immer::flex_vector<SceneState>{};  // Clear redo stack
             
-            // Add the object
-            model.scene.objects[act.object.id] = act.object;
+            // Add the object using immer::map::set()
+            model.scene.objects = model.scene.objects.set(act.object.id, act.object);
             
             // Add to parent's children list
             if (!act.parent_id.empty()) {
-                auto parent_it = model.scene.objects.find(act.parent_id);
-                if (parent_it != model.scene.objects.end()) {
-                    parent_it->second.children.push_back(act.object.id);
+                const SceneObject* parent_ptr = model.scene.objects.find(act.parent_id);
+                if (parent_ptr != nullptr) {
+                    // Create updated parent with new child
+                    SceneObject updated_parent = *parent_ptr;
+                    updated_parent.children.push_back(act.object.id);
+                    model.scene.objects = model.scene.objects.set(act.parent_id, updated_parent);
                 }
             }
             
@@ -195,8 +167,9 @@ EditorModel editor_update(EditorModel model, EditorAction action) {
             return model;
         }
         else if constexpr (std::is_same_v<T, actions::RemoveObject>) {
-            auto it = model.scene.objects.find(act.object_id);
-            if (it == model.scene.objects.end()) {
+            // immer::map::find() returns const T* (pointer to value), not iterator
+            const SceneObject* obj_ptr = model.scene.objects.find(act.object_id);
+            if (obj_ptr == nullptr) {
                 return model;
             }
             
@@ -204,17 +177,24 @@ EditorModel editor_update(EditorModel model, EditorAction action) {
             model.undo_stack = model.undo_stack.push_back(model.scene);
             model.redo_stack = immer::flex_vector<SceneState>{};  // Clear redo stack
             
-            // Remove from parent's children list
-            for (auto& [id, obj] : model.scene.objects) {
+            // Remove from parent's children list (immutably)
+            // Find parent that contains this child
+            for (const auto& [id, obj] : model.scene.objects) {
                 auto child_it = std::find(obj.children.begin(), obj.children.end(), act.object_id);
                 if (child_it != obj.children.end()) {
-                    obj.children.erase(child_it);
+                    // Create updated parent with child removed
+                    SceneObject updated_parent = obj;
+                    updated_parent.children.erase(
+                        std::find(updated_parent.children.begin(), 
+                                  updated_parent.children.end(), 
+                                  act.object_id));
+                    model.scene.objects = model.scene.objects.set(id, updated_parent);
                     break;
                 }
             }
             
-            // Remove the object
-            model.scene.objects.erase(it);
+            // Remove the object using immer::map::erase()
+            model.scene.objects = model.scene.objects.erase(act.object_id);
             
             // Clear selection if removed object was selected
             if (model.scene.selected_id == act.object_id) {
@@ -320,84 +300,97 @@ void EngineSimulator::initialize_sample_scene() {
     root.meta = transform_meta;
     root.children = {"camera_main", "light_sun", "cube_1"};
     
-    // Create root data
-    ValueMap position, rotation, scale;
-    position = position.set("x", ValueBox{Value{0.0}});
-    position = position.set("y", ValueBox{Value{0.0}});
-    position = position.set("z", ValueBox{Value{0.0}});
+    // Create root data using Builder API for O(n) construction
+    Value position = MapBuilder()
+        .set("x", Value{0.0})
+        .set("y", Value{0.0})
+        .set("z", Value{0.0})
+        .finish();
     
-    rotation = rotation.set("x", ValueBox{Value{0.0}});
-    rotation = rotation.set("y", ValueBox{Value{0.0}});
-    rotation = rotation.set("z", ValueBox{Value{0.0}});
+    Value rotation = MapBuilder()
+        .set("x", Value{0.0})
+        .set("y", Value{0.0})
+        .set("z", Value{0.0})
+        .finish();
     
-    scale = scale.set("x", ValueBox{Value{1.0}});
-    scale = scale.set("y", ValueBox{Value{1.0}});
-    scale = scale.set("z", ValueBox{Value{1.0}});
+    Value scale = MapBuilder()
+        .set("x", Value{1.0})
+        .set("y", Value{1.0})
+        .set("z", Value{1.0})
+        .finish();
     
-    ValueMap root_data;
-    root_data = root_data.set("position", ValueBox{Value{position}});
-    root_data = root_data.set("rotation", ValueBox{Value{rotation}});
-    root_data = root_data.set("scale", ValueBox{Value{scale}});
-    root.data = Value{root_data};
+    root.data = MapBuilder()
+        .set("position", position)
+        .set("rotation", rotation)
+        .set("scale", scale)
+        .finish();
     
-    // ===== Create Light object =====
+    // ===== Create Light object using Builder API =====
     SceneObject light;
     light.id = "light_sun";
     light.type = "Light";
     light.meta = light_meta;
     
-    ValueMap light_data;
-    light_data = light_data.set("name", ValueBox{Value{std::string{"Sun Light"}}});
-    light_data = light_data.set("type", ValueBox{Value{std::string{"Directional"}}});
-    light_data = light_data.set("color", ValueBox{Value{std::string{"#FFFFCC"}}});
-    light_data = light_data.set("intensity", ValueBox{Value{1.5}});
-    light_data = light_data.set("enabled", ValueBox{Value{true}});
-    light.data = Value{light_data};
+    light.data = MapBuilder()
+        .set("name", Value{std::string{"Sun Light"}})
+        .set("type", Value{std::string{"Directional"}})
+        .set("color", Value{std::string{"#FFFFCC"}})
+        .set("intensity", Value{1.5})
+        .set("enabled", Value{true})
+        .finish();
     
-    // ===== Create Mesh object =====
+    // ===== Create Mesh object using Builder API =====
     SceneObject cube;
     cube.id = "cube_1";
     cube.type = "MeshRenderer";
     cube.meta = mesh_meta;
     
-    ValueMap cube_data;
-    cube_data = cube_data.set("name", ValueBox{Value{std::string{"Main Cube"}}});
-    cube_data = cube_data.set("mesh_path", ValueBox{Value{std::string{"/meshes/cube.fbx"}}});
-    cube_data = cube_data.set("material", ValueBox{Value{std::string{"default_material"}}});
-    cube_data = cube_data.set("visible", ValueBox{Value{true}});
-    cube_data = cube_data.set("cast_shadows", ValueBox{Value{true}});
-    cube.data = Value{cube_data};
+    cube.data = MapBuilder()
+        .set("name", Value{std::string{"Main Cube"}})
+        .set("mesh_path", Value{std::string{"/meshes/cube.fbx"}})
+        .set("material", Value{std::string{"default_material"}})
+        .set("visible", Value{true})
+        .set("cast_shadows", Value{true})
+        .finish();
     
-    // ===== Create Camera object (using transform meta) =====
+    // ===== Create Camera object using Builder API =====
     SceneObject camera;
     camera.id = "camera_main";
     camera.type = "Transform";
     camera.meta = transform_meta;
     
-    ValueMap cam_position, cam_rotation, cam_scale;
-    cam_position = cam_position.set("x", ValueBox{Value{0.0}});
-    cam_position = cam_position.set("y", ValueBox{Value{5.0}});
-    cam_position = cam_position.set("z", ValueBox{Value{-10.0}});
+    Value cam_position = MapBuilder()
+        .set("x", Value{0.0})
+        .set("y", Value{5.0})
+        .set("z", Value{-10.0})
+        .finish();
     
-    cam_rotation = cam_rotation.set("x", ValueBox{Value{15.0}});
-    cam_rotation = cam_rotation.set("y", ValueBox{Value{0.0}});
-    cam_rotation = cam_rotation.set("z", ValueBox{Value{0.0}});
+    Value cam_rotation = MapBuilder()
+        .set("x", Value{15.0})
+        .set("y", Value{0.0})
+        .set("z", Value{0.0})
+        .finish();
     
-    cam_scale = cam_scale.set("x", ValueBox{Value{1.0}});
-    cam_scale = cam_scale.set("y", ValueBox{Value{1.0}});
-    cam_scale = cam_scale.set("z", ValueBox{Value{1.0}});
+    Value cam_scale = MapBuilder()
+        .set("x", Value{1.0})
+        .set("y", Value{1.0})
+        .set("z", Value{1.0})
+        .finish();
     
-    ValueMap camera_data;
-    camera_data = camera_data.set("position", ValueBox{Value{cam_position}});
-    camera_data = camera_data.set("rotation", ValueBox{Value{cam_rotation}});
-    camera_data = camera_data.set("scale", ValueBox{Value{cam_scale}});
-    camera.data = Value{camera_data};
+    camera.data = MapBuilder()
+        .set("position", cam_position)
+        .set("rotation", cam_rotation)
+        .set("scale", cam_scale)
+        .finish();
     
-    // ===== Build scene =====
-    impl_->scene.objects["root"] = root;
-    impl_->scene.objects["light_sun"] = light;
-    impl_->scene.objects["cube_1"] = cube;
-    impl_->scene.objects["camera_main"] = camera;
+    // ===== Build scene using Builder API for O(n) construction =====
+    using SceneMapBuilder = typename immer::map<std::string, SceneObject>::transient_type;
+    SceneMapBuilder scene_builder = impl_->scene.objects.transient();
+    scene_builder.set("root", root);
+    scene_builder.set("light_sun", light);
+    scene_builder.set("cube_1", cube);
+    scene_builder.set("camera_main", camera);
+    impl_->scene.objects = scene_builder.persistent();
     impl_->scene.root_id = "root";
     impl_->scene.version = 1;
 }
@@ -554,12 +547,8 @@ const SceneObject* EditorController::get_selected_object() const {
         return nullptr;
     }
     
-    auto it = impl_->model.scene.objects.find(impl_->model.scene.selected_id);
-    if (it == impl_->model.scene.objects.end()) {
-        return nullptr;
-    }
-    
-    return &it->second;
+    // immer::map::find() returns const T* directly, not an iterator
+    return impl_->model.scene.objects.find(impl_->model.scene.selected_id);
 }
 
 Value EditorController::get_property(const std::string& path) const {
@@ -567,7 +556,7 @@ Value EditorController::get_property(const std::string& path) const {
     if (!obj) return Value{};  // null Value indicates no object selected
     
     Path parsed_path = parse_property_path(path);
-    return get_value_at_path(obj->data, parsed_path);
+    return get_at_path_direct(obj->data, parsed_path);
 }
 
 void EditorController::set_property(const std::string& path, Value value) {
@@ -836,7 +825,7 @@ void demo_property_editing() {
     
     // Batch update
     std::cout << "\nSimulating batch update (drag 3D gizmo):\n";
-    editor.dispatch(actions::SetProperties{{
+    editor.dispatch(actions::SetProperties{std::map<std::string, Value>{
         {"position.x", Value{5.0}},
         {"position.y", Value{7.5}},
         {"position.z", Value{-15.0}}

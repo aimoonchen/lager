@@ -10,6 +10,7 @@
 #define NOMINMAX
 
 #include "shared_value.h"
+#include "fast_shared_value.h"
 #include "value.h"
 
 #include <chrono>
@@ -63,401 +64,460 @@ std::string generate_uuid_like_id(size_t index) {
 
 // Helper: create a single realistic scene object (Value version)
 // Structure based on D:\scene_object_map.json
-ValueMap create_scene_object(size_t index) {
+// 
+// OPTIMIZED: Uses Builder API for O(n) construction instead of O(n log n)
+// This demonstrates the recommended pattern for building complex Value structures.
+Value create_scene_object(size_t index) {
     std::string id = generate_uuid_like_id(index);
     
-    ValueMap obj;
+    // Build techParam (Vec3) - reused in multiple places
+    Value techParam = VectorBuilder()
+        .push_back(0.0)
+        .push_back(0.0)
+        .push_back(0.0)
+        .finish();
     
-    // Basic properties from scene_object_map
-    ValueMap property;
-    property = property.set("name", ValueBox{Value{"IEntity"}});
-    obj = obj.set("property", ValueBox{Value{property}});
+    // Build techParam2 (Vec4)
+    Value techParam2 = VectorBuilder()
+        .push_back(0.0)
+        .push_back(0.0)
+        .push_back(0.0)
+        .push_back(0.0)
+        .finish();
     
-    obj = obj.set("filename", ValueBox{Value{""}});
-    obj = obj.set("space_object_type", ValueBox{Value{static_cast<int64_t>(1048576)}});
-    obj = obj.set("scene_object_id", ValueBox{Value{id}});
-    obj = obj.set("parent", ValueBox{Value{"A7DC0D1A-7B421DB0-5B8D7D86-FDB2A65F"}});
-    obj = obj.set("level", ValueBox{Value{"CB9552E0-F1495927-71830CA6-BE6E082F"}});
+    // Build tintColor (Vec4) - all 1.0
+    Value tintColor = VectorBuilder()
+        .push_back(1.0)
+        .push_back(1.0)
+        .push_back(1.0)
+        .push_back(1.0)
+        .finish();
     
-    // Transform: position, scale, euler (Vec3)
-    ValueVector position;
-    position = position.push_back(ValueBox{Value{static_cast<double>(index % 1000)}});
-    position = position.push_back(ValueBox{Value{0.06}});
-    position = position.push_back(ValueBox{Value{static_cast<double>((index / 1000) % 1000)}});
-    obj = obj.set("position", ValueBox{Value{position}});
+    // Build LightmapScale/Offset (Vec4)
+    Value lmScale = VectorBuilder()
+        .push_back(0.76)
+        .push_back(0.71)
+        .push_back(0.51)
+        .push_back(1.0)
+        .finish();
     
-    ValueVector scale;
-    scale = scale.push_back(ValueBox{Value{1.0}});
-    scale = scale.push_back(ValueBox{Value{1.0}});
-    scale = scale.push_back(ValueBox{Value{1.0}});
-    obj = obj.set("scale", ValueBox{Value{scale}});
+    // Build SyncModel sub-component
+    Value syncModel = MapBuilder()
+        .set("GroupID", static_cast<int64_t>(0))
+        .set("NeedBake", true)
+        .set("NeedGenLitmap", true)
+        .set("NeedCastShadow", true)
+        .set("NeedReceiveShadow", true)
+        .set("Occluder", true)
+        .set("Occludee", true)
+        .set("CastGIScale", 1.0)
+        .set("[Type]", "SyncModelComponent")
+        .finish();
     
-    ValueVector euler;
-    euler = euler.push_back(ValueBox{Value{0.0}});
-    euler = euler.push_back(ValueBox{Value{static_cast<double>(index % 360)}});
-    euler = euler.push_back(ValueBox{Value{0.0}});
-    obj = obj.set("euler", ValueBox{Value{euler}});
+    // Build ModelComponent
+    Value modelComp = MapBuilder()
+        .set("CustomRenderSet", static_cast<int64_t>(0))
+        .set("CustomStencil", static_cast<int64_t>(0))
+        .set("IsCastDynamicShadow", true)
+        .set("IsReceiveDynamicShadow", true)
+        .set("HasPhysics", true)
+        .set("ReceiveDecals", true)
+        .set("Lightmap", "AuroraAuto/Model_lightmap/L_CloudMansion_02/atlas_0")
+        .set("[Type]", "ModelComponent")
+        .set("LightmapScale", lmScale)
+        .set("LightmapOffset", lmScale)
+        .set("SyncModel", syncModel)
+        .finish();
     
-    // Boolean and integer properties
-    obj = obj.set("visible_mask", ValueBox{Value{true}});
-    obj = obj.set("in_world", ValueBox{Value{true}});
-    obj = obj.set("scene_object_layer", ValueBox{Value{static_cast<int64_t>(143)}});
-    obj = obj.set("name", ValueBox{Value{"SM_CM_1L_Building_" + std::to_string(index)}});
-    obj = obj.set("file", ValueBox{Value{"Scenes/Architecture/CloudMansion/Structure/SM_CM_L1_Building_" + std::to_string(index % 100)}});
-    obj = obj.set("scene_object_locked", ValueBox{Value{false}});
-    obj = obj.set("scene_object_type", ValueBox{Value{static_cast<int64_t>(9)}});
-    obj = obj.set("ModelResource", ValueBox{Value{"Scenes/Architecture/CloudMansion/Structure/SM_CM_L1_Building_" + std::to_string(index % 100)}});
+    // Build Primitives array
+    Value primitives = VectorBuilder()
+        .push_back(modelComp)
+        .finish();
     
-    // PropertyData - complex nested structure
-    ValueMap propertyData;
-    propertyData = propertyData.set("GenerateOccluder", ValueBox{Value{false}});
-    propertyData = propertyData.set("DeleteOccluder", ValueBox{Value{false}});
-    propertyData = propertyData.set("IsVisible", ValueBox{Value{true}});
-    propertyData = propertyData.set("IsDisableCollision", ValueBox{Value{false}});
-    propertyData = propertyData.set("IsBillboard", ValueBox{Value{false}});
-    propertyData = propertyData.set("IsReflectionVisible", ValueBox{Value{false}});
-    propertyData = propertyData.set("IsOutlined", ValueBox{Value{false}});
-    propertyData = propertyData.set("IsThermalVisible", ValueBox{Value{false}});
-    propertyData = propertyData.set("DetailLevel", ValueBox{Value{static_cast<int64_t>(0)}});
-    propertyData = propertyData.set("TechState", ValueBox{Value{static_cast<int64_t>(0)}});
+    // Build RigidBody
+    Value rigidBody = MapBuilder()
+        .set("ComponentType", "PhysicsStaticSceneBody")
+        .set("EnableContactNotify", false)
+        .set("Unwalkable", false)
+        .set("TemplateRes", "Scenes/Architecture/CloudMansion/Structure/AutoPhyRBTemplate")
+        .set("[Type]", "PhysicsStaticSceneBody")
+        .finish();
     
-    // TechParam vectors (Vec3, Vec4)
-    ValueVector techParam;
-    techParam = techParam.push_back(ValueBox{Value{0.0}});
-    techParam = techParam.push_back(ValueBox{Value{0.0}});
-    techParam = techParam.push_back(ValueBox{Value{0.0}});
-    propertyData = propertyData.set("TechParam", ValueBox{Value{techParam}});
+    // Build RigidBodies array
+    Value rigidBodies = VectorBuilder()
+        .push_back(rigidBody)
+        .finish();
     
-    ValueVector techParam2;
-    for (int j = 0; j < 4; ++j) techParam2 = techParam2.push_back(ValueBox{Value{0.0}});
-    propertyData = propertyData.set("TechParam2", ValueBox{Value{techParam2}});
+    // Build Appearance component
+    Value appearance = MapBuilder()
+        .set("DepthOffset", static_cast<int64_t>(0))
+        .set("[Type]", "IAppearanceComponent")
+        .finish();
     
-    // TintColor (Vec4)
-    ValueVector tintColor;
-    for (int j = 0; j < 4; ++j) tintColor = tintColor.push_back(ValueBox{Value{1.0}});
-    propertyData = propertyData.set("TintColor1", ValueBox{Value{tintColor}});
-    propertyData = propertyData.set("TintColor2", ValueBox{Value{tintColor}});
-    propertyData = propertyData.set("TintColor3", ValueBox{Value{tintColor}});
+    // Build Tag component
+    Value tag = MapBuilder()
+        .set("TagString", "")
+        .set("[Type]", "TagComponent")
+        .finish();
     
-    // LodThreshold, Anchor (Vec3)
-    propertyData = propertyData.set("LodThreshold", ValueBox{Value{techParam}});
-    propertyData = propertyData.set("Anchor", ValueBox{Value{techParam}});
+    // Build PropertyData - complex nested structure
+    Value propertyData = MapBuilder()
+        .set("GenerateOccluder", false)
+        .set("DeleteOccluder", false)
+        .set("IsVisible", true)
+        .set("IsDisableCollision", false)
+        .set("IsBillboard", false)
+        .set("IsReflectionVisible", false)
+        .set("IsOutlined", false)
+        .set("IsThermalVisible", false)
+        .set("DetailLevel", static_cast<int64_t>(0))
+        .set("TechState", static_cast<int64_t>(0))
+        .set("TechParam", techParam)
+        .set("TechParam2", techParam2)
+        .set("TintColor1", tintColor)
+        .set("TintColor2", tintColor)
+        .set("TintColor3", tintColor)
+        .set("LodThreshold", techParam)
+        .set("Anchor", techParam)
+        .set("IsCastDynamicShadow", true)
+        .set("IsReceiveDynamicShadow", true)
+        .set("IsSDFGen", true)
+        .set("HasCollision", true)
+        .set("[Type]", "SceneObjectType_9")
+        .set("WorldName", "L_CloudMansion_02")
+        .set("LevelName", "L_CloudMansion_Mesh_02")
+        .set("Primitives", primitives)
+        .set("RigidBodies", rigidBodies)
+        .set("Appearance", appearance)
+        .set("Tag", tag)
+        .finish();
     
-    propertyData = propertyData.set("IsCastDynamicShadow", ValueBox{Value{true}});
-    propertyData = propertyData.set("IsReceiveDynamicShadow", ValueBox{Value{true}});
-    propertyData = propertyData.set("IsSDFGen", ValueBox{Value{true}});
-    propertyData = propertyData.set("HasCollision", ValueBox{Value{true}});
-    propertyData = propertyData.set("[Type]", ValueBox{Value{"SceneObjectType_9"}});
-    propertyData = propertyData.set("WorldName", ValueBox{Value{"L_CloudMansion_02"}});
-    propertyData = propertyData.set("LevelName", ValueBox{Value{"L_CloudMansion_Mesh_02"}});
+    // Build PropertyPaths array
+    Value propertyPaths = VectorBuilder()
+        .push_back("PropertyData")
+        .push_back("PropertyData/Primitives/0")
+        .push_back("PropertyData/Primitives/0/SyncModel")
+        .push_back("PropertyData/RigidBodies/0")
+        .finish();
     
-    // Primitives array with ModelComponent
-    ValueVector primitives;
-    ValueMap modelComp;
-    modelComp = modelComp.set("CustomRenderSet", ValueBox{Value{static_cast<int64_t>(0)}});
-    modelComp = modelComp.set("CustomStencil", ValueBox{Value{static_cast<int64_t>(0)}});
-    modelComp = modelComp.set("IsCastDynamicShadow", ValueBox{Value{true}});
-    modelComp = modelComp.set("IsReceiveDynamicShadow", ValueBox{Value{true}});
-    modelComp = modelComp.set("HasPhysics", ValueBox{Value{true}});
-    modelComp = modelComp.set("ReceiveDecals", ValueBox{Value{true}});
-    modelComp = modelComp.set("Lightmap", ValueBox{Value{"AuroraAuto/Model_lightmap/L_CloudMansion_02/atlas_0"}});
-    modelComp = modelComp.set("[Type]", ValueBox{Value{"ModelComponent"}});
+    // Build Components array
+    Value components = VectorBuilder()
+        .push_back(MapBuilder()
+            .set("DisplayName", "[ModelComponent]")
+            .set("Icon", "Comp_Model")
+            .finish())
+        .finish();
     
-    // LightmapScale, LightmapOffset (Vec4)
-    ValueVector lmScale;
-    lmScale = lmScale.push_back(ValueBox{Value{0.76}});
-    lmScale = lmScale.push_back(ValueBox{Value{0.71}});
-    lmScale = lmScale.push_back(ValueBox{Value{0.51}});
-    lmScale = lmScale.push_back(ValueBox{Value{1.0}});
-    modelComp = modelComp.set("LightmapScale", ValueBox{Value{lmScale}});
-    modelComp = modelComp.set("LightmapOffset", ValueBox{Value{lmScale}});
+    // Build position (Vec3)
+    Value position = VectorBuilder()
+        .push_back(static_cast<double>(index % 1000))
+        .push_back(0.06)
+        .push_back(static_cast<double>((index / 1000) % 1000))
+        .finish();
     
-    // SyncModel sub-component
-    ValueMap syncModel;
-    syncModel = syncModel.set("GroupID", ValueBox{Value{static_cast<int64_t>(0)}});
-    syncModel = syncModel.set("NeedBake", ValueBox{Value{true}});
-    syncModel = syncModel.set("NeedGenLitmap", ValueBox{Value{true}});
-    syncModel = syncModel.set("NeedCastShadow", ValueBox{Value{true}});
-    syncModel = syncModel.set("NeedReceiveShadow", ValueBox{Value{true}});
-    syncModel = syncModel.set("Occluder", ValueBox{Value{true}});
-    syncModel = syncModel.set("Occludee", ValueBox{Value{true}});
-    syncModel = syncModel.set("CastGIScale", ValueBox{Value{1.0}});
-    syncModel = syncModel.set("[Type]", ValueBox{Value{"SyncModelComponent"}});
-    modelComp = modelComp.set("SyncModel", ValueBox{Value{syncModel}});
+    // Build scale (Vec3)
+    Value scale = VectorBuilder()
+        .push_back(1.0)
+        .push_back(1.0)
+        .push_back(1.0)
+        .finish();
     
-    primitives = primitives.push_back(ValueBox{Value{modelComp}});
-    propertyData = propertyData.set("Primitives", ValueBox{Value{primitives}});
+    // Build euler (Vec3)
+    Value euler = VectorBuilder()
+        .push_back(0.0)
+        .push_back(static_cast<double>(index % 360))
+        .push_back(0.0)
+        .finish();
     
-    // RigidBodies array
-    ValueVector rigidBodies;
-    ValueMap rigidBody;
-    rigidBody = rigidBody.set("ComponentType", ValueBox{Value{"PhysicsStaticSceneBody"}});
-    rigidBody = rigidBody.set("EnableContactNotify", ValueBox{Value{false}});
-    rigidBody = rigidBody.set("Unwalkable", ValueBox{Value{false}});
-    rigidBody = rigidBody.set("TemplateRes", ValueBox{Value{"Scenes/Architecture/CloudMansion/Structure/AutoPhyRBTemplate"}});
-    rigidBody = rigidBody.set("[Type]", ValueBox{Value{"PhysicsStaticSceneBody"}});
-    rigidBodies = rigidBodies.push_back(ValueBox{Value{rigidBody}});
-    propertyData = propertyData.set("RigidBodies", ValueBox{Value{rigidBodies}});
+    // Build property sub-object
+    Value property = MapBuilder()
+        .set("name", "IEntity")
+        .finish();
     
-    // Appearance, Tag components
-    ValueMap appearance;
-    appearance = appearance.set("DepthOffset", ValueBox{Value{static_cast<int64_t>(0)}});
-    appearance = appearance.set("[Type]", ValueBox{Value{"IAppearanceComponent"}});
-    propertyData = propertyData.set("Appearance", ValueBox{Value{appearance}});
-    
-    ValueMap tag;
-    tag = tag.set("TagString", ValueBox{Value{""}});
-    tag = tag.set("[Type]", ValueBox{Value{"TagComponent"}});
-    propertyData = propertyData.set("Tag", ValueBox{Value{tag}});
-    
-    obj = obj.set("PropertyData", ValueBox{Value{propertyData}});
-    
-    // PropertyPaths array
-    ValueVector propertyPaths;
-    propertyPaths = propertyPaths.push_back(ValueBox{Value{"PropertyData"}});
-    propertyPaths = propertyPaths.push_back(ValueBox{Value{"PropertyData/Primitives/0"}});
-    propertyPaths = propertyPaths.push_back(ValueBox{Value{"PropertyData/Primitives/0/SyncModel"}});
-    propertyPaths = propertyPaths.push_back(ValueBox{Value{"PropertyData/RigidBodies/0"}});
-    obj = obj.set("PropertyPaths", ValueBox{Value{propertyPaths}});
-    
-    // Components array
-    ValueVector components;
-    ValueMap comp1;
-    comp1 = comp1.set("DisplayName", ValueBox{Value{"[ModelComponent]"}});
-    comp1 = comp1.set("Icon", ValueBox{Value{"Comp_Model"}});
-    components = components.push_back(ValueBox{Value{comp1}});
-    obj = obj.set("Components", ValueBox{Value{components}});
-    
-    return obj;
+    // Build the final scene object using Builder API - O(n) construction!
+    return MapBuilder()
+        .set("property", property)
+        .set("filename", "")
+        .set("space_object_type", static_cast<int64_t>(1048576))
+        .set("scene_object_id", id)
+        .set("parent", "A7DC0D1A-7B421DB0-5B8D7D86-FDB2A65F")
+        .set("level", "CB9552E0-F1495927-71830CA6-BE6E082F")
+        .set("position", position)
+        .set("scale", scale)
+        .set("euler", euler)
+        .set("visible_mask", true)
+        .set("in_world", true)
+        .set("scene_object_layer", static_cast<int64_t>(143))
+        .set("name", "SM_CM_1L_Building_" + std::to_string(index))
+        .set("file", "Scenes/Architecture/CloudMansion/Structure/SM_CM_L1_Building_" + std::to_string(index % 100))
+        .set("scene_object_locked", false)
+        .set("scene_object_type", static_cast<int64_t>(9))
+        .set("ModelResource", "Scenes/Architecture/CloudMansion/Structure/SM_CM_L1_Building_" + std::to_string(index % 100))
+        .set("PropertyData", propertyData)
+        .set("PropertyPaths", propertyPaths)
+        .set("Components", components)
+        .finish();
 }
 
 // Generate large-scale test data using real scene object structure - Value version
+// 
+// OPTIMIZED: Uses Builder API for O(n) construction instead of O(n log n)
 Value generate_large_scene(size_t object_count) {
-    std::cout << "Generating scene with " << object_count << " objects (Value - single-threaded)...\n";
-    std::cout << "Using real scene_object_map.json structure\n";
+    std::cout << "Generating scene with " << object_count << " objects (Value - Builder API)...\n";
+    std::cout << "Using real scene_object_map.json structure with O(n) construction\n";
     
     Timer timer;
     timer.start();
     
-    auto objects_transient = ValueMap{}.transient();
+    // Use MapBuilder for O(n) construction - each .set() is O(1) amortized
+    MapBuilder objects_builder;
     
     for (size_t i = 0; i < object_count; ++i) {
         std::string key = generate_uuid_like_id(i);  // UUID-like key
-        ValueMap obj = create_scene_object(i);
-        objects_transient.set(key, ValueBox{Value{obj}});
+        Value obj = create_scene_object(i);          // Now returns Value
+        objects_builder.set(key, obj);
         
         if ((i + 1) % 10000 == 0) {
             std::cout << "  Generated " << (i + 1) << " objects...\n";
         }
     }
     
-    ValueMap scene;
-    scene = scene.set("scene_object_map", ValueBox{Value{objects_transient.persistent()}});
-    
     double elapsed = timer.elapsed_ms();
     std::cout << "Scene generation completed in " << std::fixed << std::setprecision(2) 
               << elapsed << " ms\n";
     
-    return Value{scene};
+    // Build the final scene using Builder API
+    return MapBuilder()
+        .set("scene_object_map", objects_builder.finish())
+        .finish();
 }
 
 // Helper: create a single realistic scene object (SyncValue version)
-SyncValueMap create_scene_object_sync(size_t index) {
+// 
+// OPTIMIZED: Uses SyncMapBuilder/SyncVectorBuilder for O(n) construction
+SyncValue create_scene_object_sync(size_t index) {
     std::string id = generate_uuid_like_id(index);
     
-    SyncValueMap obj;
+    // Build techParam (Vec3) - reused in multiple places
+    SyncValue techParam = SyncVectorBuilder()
+        .push_back(0.0)
+        .push_back(0.0)
+        .push_back(0.0)
+        .finish();
     
-    // Basic properties from scene_object_map
-    SyncValueMap property;
-    property = property.set("name", SyncValueBox{SyncValue{"IEntity"}});
-    obj = obj.set("property", SyncValueBox{SyncValue{property}});
+    // Build techParam2 (Vec4)
+    SyncValue techParam2 = SyncVectorBuilder()
+        .push_back(0.0)
+        .push_back(0.0)
+        .push_back(0.0)
+        .push_back(0.0)
+        .finish();
     
-    obj = obj.set("filename", SyncValueBox{SyncValue{""}});
-    obj = obj.set("space_object_type", SyncValueBox{SyncValue{static_cast<int64_t>(1048576)}});
-    obj = obj.set("scene_object_id", SyncValueBox{SyncValue{id}});
-    obj = obj.set("parent", SyncValueBox{SyncValue{"A7DC0D1A-7B421DB0-5B8D7D86-FDB2A65F"}});
-    obj = obj.set("level", SyncValueBox{SyncValue{"CB9552E0-F1495927-71830CA6-BE6E082F"}});
+    // Build tintColor (Vec4) - all 1.0
+    SyncValue tintColor = SyncVectorBuilder()
+        .push_back(1.0)
+        .push_back(1.0)
+        .push_back(1.0)
+        .push_back(1.0)
+        .finish();
     
-    // Transform: position, scale, euler (Vec3)
-    SyncValueVector position;
-    position = position.push_back(SyncValueBox{SyncValue{static_cast<double>(index % 1000)}});
-    position = position.push_back(SyncValueBox{SyncValue{0.06}});
-    position = position.push_back(SyncValueBox{SyncValue{static_cast<double>((index / 1000) % 1000)}});
-    obj = obj.set("position", SyncValueBox{SyncValue{position}});
+    // Build LightmapScale/Offset (Vec4)
+    SyncValue lmScale = SyncVectorBuilder()
+        .push_back(0.76)
+        .push_back(0.71)
+        .push_back(0.51)
+        .push_back(1.0)
+        .finish();
     
-    SyncValueVector scale;
-    scale = scale.push_back(SyncValueBox{SyncValue{1.0}});
-    scale = scale.push_back(SyncValueBox{SyncValue{1.0}});
-    scale = scale.push_back(SyncValueBox{SyncValue{1.0}});
-    obj = obj.set("scale", SyncValueBox{SyncValue{scale}});
+    // Build SyncModel sub-component
+    SyncValue syncModel = SyncMapBuilder()
+        .set("GroupID", static_cast<int64_t>(0))
+        .set("NeedBake", true)
+        .set("NeedGenLitmap", true)
+        .set("NeedCastShadow", true)
+        .set("NeedReceiveShadow", true)
+        .set("Occluder", true)
+        .set("Occludee", true)
+        .set("CastGIScale", 1.0)
+        .set("[Type]", "SyncModelComponent")
+        .finish();
     
-    SyncValueVector euler;
-    euler = euler.push_back(SyncValueBox{SyncValue{0.0}});
-    euler = euler.push_back(SyncValueBox{SyncValue{static_cast<double>(index % 360)}});
-    euler = euler.push_back(SyncValueBox{SyncValue{0.0}});
-    obj = obj.set("euler", SyncValueBox{SyncValue{euler}});
+    // Build ModelComponent
+    SyncValue modelComp = SyncMapBuilder()
+        .set("CustomRenderSet", static_cast<int64_t>(0))
+        .set("CustomStencil", static_cast<int64_t>(0))
+        .set("IsCastDynamicShadow", true)
+        .set("IsReceiveDynamicShadow", true)
+        .set("HasPhysics", true)
+        .set("ReceiveDecals", true)
+        .set("Lightmap", "AuroraAuto/Model_lightmap/L_CloudMansion_02/atlas_0")
+        .set("[Type]", "ModelComponent")
+        .set("LightmapScale", lmScale)
+        .set("LightmapOffset", lmScale)
+        .set("SyncModel", syncModel)
+        .finish();
     
-    // Boolean and integer properties
-    obj = obj.set("visible_mask", SyncValueBox{SyncValue{true}});
-    obj = obj.set("in_world", SyncValueBox{SyncValue{true}});
-    obj = obj.set("scene_object_layer", SyncValueBox{SyncValue{static_cast<int64_t>(143)}});
-    obj = obj.set("name", SyncValueBox{SyncValue{"SM_CM_1L_Building_" + std::to_string(index)}});
-    obj = obj.set("file", SyncValueBox{SyncValue{"Scenes/Architecture/CloudMansion/Structure/SM_CM_L1_Building_" + std::to_string(index % 100)}});
-    obj = obj.set("scene_object_locked", SyncValueBox{SyncValue{false}});
-    obj = obj.set("scene_object_type", SyncValueBox{SyncValue{static_cast<int64_t>(9)}});
-    obj = obj.set("ModelResource", SyncValueBox{SyncValue{"Scenes/Architecture/CloudMansion/Structure/SM_CM_L1_Building_" + std::to_string(index % 100)}});
+    // Build Primitives array
+    SyncValue primitives = SyncVectorBuilder()
+        .push_back(modelComp)
+        .finish();
     
-    // PropertyData - complex nested structure
-    SyncValueMap propertyData;
-    propertyData = propertyData.set("GenerateOccluder", SyncValueBox{SyncValue{false}});
-    propertyData = propertyData.set("DeleteOccluder", SyncValueBox{SyncValue{false}});
-    propertyData = propertyData.set("IsVisible", SyncValueBox{SyncValue{true}});
-    propertyData = propertyData.set("IsDisableCollision", SyncValueBox{SyncValue{false}});
-    propertyData = propertyData.set("IsBillboard", SyncValueBox{SyncValue{false}});
-    propertyData = propertyData.set("IsReflectionVisible", SyncValueBox{SyncValue{false}});
-    propertyData = propertyData.set("IsOutlined", SyncValueBox{SyncValue{false}});
-    propertyData = propertyData.set("IsThermalVisible", SyncValueBox{SyncValue{false}});
-    propertyData = propertyData.set("DetailLevel", SyncValueBox{SyncValue{static_cast<int64_t>(0)}});
-    propertyData = propertyData.set("TechState", SyncValueBox{SyncValue{static_cast<int64_t>(0)}});
+    // Build RigidBody
+    SyncValue rigidBody = SyncMapBuilder()
+        .set("ComponentType", "PhysicsStaticSceneBody")
+        .set("EnableContactNotify", false)
+        .set("Unwalkable", false)
+        .set("TemplateRes", "Scenes/Architecture/CloudMansion/Structure/AutoPhyRBTemplate")
+        .set("[Type]", "PhysicsStaticSceneBody")
+        .finish();
     
-    // TechParam vectors (Vec3, Vec4)
-    SyncValueVector techParam;
-    techParam = techParam.push_back(SyncValueBox{SyncValue{0.0}});
-    techParam = techParam.push_back(SyncValueBox{SyncValue{0.0}});
-    techParam = techParam.push_back(SyncValueBox{SyncValue{0.0}});
-    propertyData = propertyData.set("TechParam", SyncValueBox{SyncValue{techParam}});
+    // Build RigidBodies array
+    SyncValue rigidBodies = SyncVectorBuilder()
+        .push_back(rigidBody)
+        .finish();
     
-    SyncValueVector techParam2;
-    for (int j = 0; j < 4; ++j) techParam2 = techParam2.push_back(SyncValueBox{SyncValue{0.0}});
-    propertyData = propertyData.set("TechParam2", SyncValueBox{SyncValue{techParam2}});
+    // Build Appearance component
+    SyncValue appearance = SyncMapBuilder()
+        .set("DepthOffset", static_cast<int64_t>(0))
+        .set("[Type]", "IAppearanceComponent")
+        .finish();
     
-    // TintColor (Vec4)
-    SyncValueVector tintColor;
-    for (int j = 0; j < 4; ++j) tintColor = tintColor.push_back(SyncValueBox{SyncValue{1.0}});
-    propertyData = propertyData.set("TintColor1", SyncValueBox{SyncValue{tintColor}});
-    propertyData = propertyData.set("TintColor2", SyncValueBox{SyncValue{tintColor}});
-    propertyData = propertyData.set("TintColor3", SyncValueBox{SyncValue{tintColor}});
+    // Build Tag component
+    SyncValue tag = SyncMapBuilder()
+        .set("TagString", "")
+        .set("[Type]", "TagComponent")
+        .finish();
     
-    // LodThreshold, Anchor (Vec3)
-    propertyData = propertyData.set("LodThreshold", SyncValueBox{SyncValue{techParam}});
-    propertyData = propertyData.set("Anchor", SyncValueBox{SyncValue{techParam}});
+    // Build PropertyData - complex nested structure
+    SyncValue propertyData = SyncMapBuilder()
+        .set("GenerateOccluder", false)
+        .set("DeleteOccluder", false)
+        .set("IsVisible", true)
+        .set("IsDisableCollision", false)
+        .set("IsBillboard", false)
+        .set("IsReflectionVisible", false)
+        .set("IsOutlined", false)
+        .set("IsThermalVisible", false)
+        .set("DetailLevel", static_cast<int64_t>(0))
+        .set("TechState", static_cast<int64_t>(0))
+        .set("TechParam", techParam)
+        .set("TechParam2", techParam2)
+        .set("TintColor1", tintColor)
+        .set("TintColor2", tintColor)
+        .set("TintColor3", tintColor)
+        .set("LodThreshold", techParam)
+        .set("Anchor", techParam)
+        .set("IsCastDynamicShadow", true)
+        .set("IsReceiveDynamicShadow", true)
+        .set("IsSDFGen", true)
+        .set("HasCollision", true)
+        .set("[Type]", "SceneObjectType_9")
+        .set("WorldName", "L_CloudMansion_02")
+        .set("LevelName", "L_CloudMansion_Mesh_02")
+        .set("Primitives", primitives)
+        .set("RigidBodies", rigidBodies)
+        .set("Appearance", appearance)
+        .set("Tag", tag)
+        .finish();
     
-    propertyData = propertyData.set("IsCastDynamicShadow", SyncValueBox{SyncValue{true}});
-    propertyData = propertyData.set("IsReceiveDynamicShadow", SyncValueBox{SyncValue{true}});
-    propertyData = propertyData.set("IsSDFGen", SyncValueBox{SyncValue{true}});
-    propertyData = propertyData.set("HasCollision", SyncValueBox{SyncValue{true}});
-    propertyData = propertyData.set("[Type]", SyncValueBox{SyncValue{"SceneObjectType_9"}});
-    propertyData = propertyData.set("WorldName", SyncValueBox{SyncValue{"L_CloudMansion_02"}});
-    propertyData = propertyData.set("LevelName", SyncValueBox{SyncValue{"L_CloudMansion_Mesh_02"}});
+    // Build PropertyPaths array
+    SyncValue propertyPaths = SyncVectorBuilder()
+        .push_back("PropertyData")
+        .push_back("PropertyData/Primitives/0")
+        .push_back("PropertyData/Primitives/0/SyncModel")
+        .push_back("PropertyData/RigidBodies/0")
+        .finish();
     
-    // Primitives array with ModelComponent
-    SyncValueVector primitives;
-    SyncValueMap modelComp;
-    modelComp = modelComp.set("CustomRenderSet", SyncValueBox{SyncValue{static_cast<int64_t>(0)}});
-    modelComp = modelComp.set("CustomStencil", SyncValueBox{SyncValue{static_cast<int64_t>(0)}});
-    modelComp = modelComp.set("IsCastDynamicShadow", SyncValueBox{SyncValue{true}});
-    modelComp = modelComp.set("IsReceiveDynamicShadow", SyncValueBox{SyncValue{true}});
-    modelComp = modelComp.set("HasPhysics", SyncValueBox{SyncValue{true}});
-    modelComp = modelComp.set("ReceiveDecals", SyncValueBox{SyncValue{true}});
-    modelComp = modelComp.set("Lightmap", SyncValueBox{SyncValue{"AuroraAuto/Model_lightmap/L_CloudMansion_02/atlas_0"}});
-    modelComp = modelComp.set("[Type]", SyncValueBox{SyncValue{"ModelComponent"}});
+    // Build Components array
+    SyncValue components = SyncVectorBuilder()
+        .push_back(SyncMapBuilder()
+            .set("DisplayName", "[ModelComponent]")
+            .set("Icon", "Comp_Model")
+            .finish())
+        .finish();
     
-    // LightmapScale, LightmapOffset (Vec4)
-    SyncValueVector lmScale;
-    lmScale = lmScale.push_back(SyncValueBox{SyncValue{0.76}});
-    lmScale = lmScale.push_back(SyncValueBox{SyncValue{0.71}});
-    lmScale = lmScale.push_back(SyncValueBox{SyncValue{0.51}});
-    lmScale = lmScale.push_back(SyncValueBox{SyncValue{1.0}});
-    modelComp = modelComp.set("LightmapScale", SyncValueBox{SyncValue{lmScale}});
-    modelComp = modelComp.set("LightmapOffset", SyncValueBox{SyncValue{lmScale}});
+    // Build position (Vec3)
+    SyncValue position = SyncVectorBuilder()
+        .push_back(static_cast<double>(index % 1000))
+        .push_back(0.06)
+        .push_back(static_cast<double>((index / 1000) % 1000))
+        .finish();
     
-    // SyncModel sub-component
-    SyncValueMap syncModel;
-    syncModel = syncModel.set("GroupID", SyncValueBox{SyncValue{static_cast<int64_t>(0)}});
-    syncModel = syncModel.set("NeedBake", SyncValueBox{SyncValue{true}});
-    syncModel = syncModel.set("NeedGenLitmap", SyncValueBox{SyncValue{true}});
-    syncModel = syncModel.set("NeedCastShadow", SyncValueBox{SyncValue{true}});
-    syncModel = syncModel.set("NeedReceiveShadow", SyncValueBox{SyncValue{true}});
-    syncModel = syncModel.set("Occluder", SyncValueBox{SyncValue{true}});
-    syncModel = syncModel.set("Occludee", SyncValueBox{SyncValue{true}});
-    syncModel = syncModel.set("CastGIScale", SyncValueBox{SyncValue{1.0}});
-    syncModel = syncModel.set("[Type]", SyncValueBox{SyncValue{"SyncModelComponent"}});
-    modelComp = modelComp.set("SyncModel", SyncValueBox{SyncValue{syncModel}});
+    // Build scale (Vec3)
+    SyncValue scale = SyncVectorBuilder()
+        .push_back(1.0)
+        .push_back(1.0)
+        .push_back(1.0)
+        .finish();
     
-    primitives = primitives.push_back(SyncValueBox{SyncValue{modelComp}});
-    propertyData = propertyData.set("Primitives", SyncValueBox{SyncValue{primitives}});
+    // Build euler (Vec3)
+    SyncValue euler = SyncVectorBuilder()
+        .push_back(0.0)
+        .push_back(static_cast<double>(index % 360))
+        .push_back(0.0)
+        .finish();
     
-    // RigidBodies array
-    SyncValueVector rigidBodies;
-    SyncValueMap rigidBody;
-    rigidBody = rigidBody.set("ComponentType", SyncValueBox{SyncValue{"PhysicsStaticSceneBody"}});
-    rigidBody = rigidBody.set("EnableContactNotify", SyncValueBox{SyncValue{false}});
-    rigidBody = rigidBody.set("Unwalkable", SyncValueBox{SyncValue{false}});
-    rigidBody = rigidBody.set("TemplateRes", SyncValueBox{SyncValue{"Scenes/Architecture/CloudMansion/Structure/AutoPhyRBTemplate"}});
-    rigidBody = rigidBody.set("[Type]", SyncValueBox{SyncValue{"PhysicsStaticSceneBody"}});
-    rigidBodies = rigidBodies.push_back(SyncValueBox{SyncValue{rigidBody}});
-    propertyData = propertyData.set("RigidBodies", SyncValueBox{SyncValue{rigidBodies}});
+    // Build property sub-object
+    SyncValue property = SyncMapBuilder()
+        .set("name", "IEntity")
+        .finish();
     
-    // Appearance, Tag components
-    SyncValueMap appearance;
-    appearance = appearance.set("DepthOffset", SyncValueBox{SyncValue{static_cast<int64_t>(0)}});
-    appearance = appearance.set("[Type]", SyncValueBox{SyncValue{"IAppearanceComponent"}});
-    propertyData = propertyData.set("Appearance", SyncValueBox{SyncValue{appearance}});
-    
-    SyncValueMap tag;
-    tag = tag.set("TagString", SyncValueBox{SyncValue{""}});
-    tag = tag.set("[Type]", SyncValueBox{SyncValue{"TagComponent"}});
-    propertyData = propertyData.set("Tag", SyncValueBox{SyncValue{tag}});
-    
-    obj = obj.set("PropertyData", SyncValueBox{SyncValue{propertyData}});
-    
-    // PropertyPaths array
-    SyncValueVector propertyPaths;
-    propertyPaths = propertyPaths.push_back(SyncValueBox{SyncValue{"PropertyData"}});
-    propertyPaths = propertyPaths.push_back(SyncValueBox{SyncValue{"PropertyData/Primitives/0"}});
-    propertyPaths = propertyPaths.push_back(SyncValueBox{SyncValue{"PropertyData/Primitives/0/SyncModel"}});
-    propertyPaths = propertyPaths.push_back(SyncValueBox{SyncValue{"PropertyData/RigidBodies/0"}});
-    obj = obj.set("PropertyPaths", SyncValueBox{SyncValue{propertyPaths}});
-    
-    // Components array
-    SyncValueVector components;
-    SyncValueMap comp1;
-    comp1 = comp1.set("DisplayName", SyncValueBox{SyncValue{"[ModelComponent]"}});
-    comp1 = comp1.set("Icon", SyncValueBox{SyncValue{"Comp_Model"}});
-    components = components.push_back(SyncValueBox{SyncValue{comp1}});
-    obj = obj.set("Components", SyncValueBox{SyncValue{components}});
-    
-    return obj;
+    // Build the final scene object using Builder API - O(n) construction!
+    return SyncMapBuilder()
+        .set("property", property)
+        .set("filename", "")
+        .set("space_object_type", static_cast<int64_t>(1048576))
+        .set("scene_object_id", id)
+        .set("parent", "A7DC0D1A-7B421DB0-5B8D7D86-FDB2A65F")
+        .set("level", "CB9552E0-F1495927-71830CA6-BE6E082F")
+        .set("position", position)
+        .set("scale", scale)
+        .set("euler", euler)
+        .set("visible_mask", true)
+        .set("in_world", true)
+        .set("scene_object_layer", static_cast<int64_t>(143))
+        .set("name", "SM_CM_1L_Building_" + std::to_string(index))
+        .set("file", "Scenes/Architecture/CloudMansion/Structure/SM_CM_L1_Building_" + std::to_string(index % 100))
+        .set("scene_object_locked", false)
+        .set("scene_object_type", static_cast<int64_t>(9))
+        .set("ModelResource", "Scenes/Architecture/CloudMansion/Structure/SM_CM_L1_Building_" + std::to_string(index % 100))
+        .set("PropertyData", propertyData)
+        .set("PropertyPaths", propertyPaths)
+        .set("Components", components)
+        .finish();
 }
 
 // Generate large-scale test data using real scene object structure - SyncValue version
+// 
+// OPTIMIZED: Uses SyncMapBuilder for O(n) construction
 SyncValue generate_large_scene_sync(size_t object_count) {
-    std::cout << "Generating scene with " << object_count << " objects (SyncValue - thread-safe)...\n";
-    std::cout << "Using real scene_object_map.json structure\n";
+    std::cout << "Generating scene with " << object_count << " objects (SyncValue - Builder API)...\n";
+    std::cout << "Using real scene_object_map.json structure with O(n) construction\n";
     
     Timer timer;
     timer.start();
     
-    auto objects_transient = SyncValueMap{}.transient();
+    // Use SyncMapBuilder for O(n) construction
+    SyncMapBuilder objects_builder;
     
     for (size_t i = 0; i < object_count; ++i) {
         std::string key = generate_uuid_like_id(i);  // UUID-like key
-        SyncValueMap obj = create_scene_object_sync(i);
-        objects_transient.set(key, SyncValueBox{SyncValue{obj}});
+        SyncValue obj = create_scene_object_sync(i); // Now returns SyncValue
+        objects_builder.set(key, obj);
         
         if ((i + 1) % 10000 == 0) {
             std::cout << "  Generated " << (i + 1) << " objects...\n";
         }
     }
     
-    SyncValueMap scene;
-    scene = scene.set("scene_object_map", SyncValueBox{SyncValue{objects_transient.persistent()}});
-    
     double elapsed = timer.elapsed_ms();
     std::cout << "Scene generation completed in " << std::fixed << std::setprecision(2) 
               << elapsed << " ms\n";
     
-    return SyncValue{scene};
+    // Build the final scene using Builder API
+    return SyncMapBuilder()
+        .set("scene_object_map", objects_builder.finish())
+        .finish();
 }
 
 // Generate large-scale test data directly in shared memory - SharedValue version
@@ -600,9 +660,9 @@ void demo_single_process() {
         double write_time = timer.elapsed_ms();
         
         std::cout << "Shared memory base: " << region.base() << "\n";
-        std::cout << "Shared memory used: " << region.header()->heap_used.load() 
+        std::cout << "Shared memory used: " << region.header()->heap_used 
                   << " bytes (" << std::fixed << std::setprecision(2)
-                  << (region.header()->heap_used.load() / 1024.0 / 1024.0) << " MB)\n";
+                  << (region.header()->heap_used / 1024.0 / 1024.0) << " MB)\n";
         std::cout << "Write to shared memory time: " << write_time << " ms\n";
         
         // Simulate process A: deep copy from shared memory
@@ -666,17 +726,15 @@ void demo_publisher(size_t object_count) {
     void* value_storage = shared_memory::shared_heap::allocate(sizeof(SharedValue));
     new (value_storage) SharedValue(std::move(shared_scene));
     
-    // Record offset to header (use memory_order_release to ensure prior writes are visible)
-    header->value_offset.store(
-        static_cast<char*>(value_storage) - static_cast<char*>(region.base()),
-        std::memory_order_release);
+    // Record offset to header
+    header->value_offset = static_cast<char*>(value_storage) - static_cast<char*>(region.base());
     
     shared_memory::set_current_shared_region(nullptr);
     
     std::cout << "\n--- Performance Stats ---\n";
     std::cout << "Direct build time: " << std::fixed << std::setprecision(2) << build_time << " ms\n";
-    std::cout << "Memory used: " << header->heap_used.load() 
-              << " bytes (" << (header->heap_used.load() / 1024.0 / 1024.0) << " MB)\n";
+    std::cout << "Memory used: " << header->heap_used 
+              << " bytes (" << (header->heap_used / 1024.0 / 1024.0) << " MB)\n";
     std::cout << "Value stored at offset: " << header->value_offset << "\n";
     
     // Comparison: how long would serialization take?
@@ -719,7 +777,7 @@ void demo_subscriber() {
     
     std::cout << "Shared memory opened at: " << handle.region().base() << "\n";
     std::cout << "Shared memory size: " << handle.region().size() << " bytes\n";
-    std::cout << "Memory used: " << handle.region().header()->heap_used.load() << " bytes\n";
+    std::cout << "Memory used: " << handle.region().header()->heap_used << " bytes\n";
     
     // Verify address match
     if (handle.region().base() != handle.region().header()->fixed_base_address) {
@@ -834,7 +892,7 @@ size_t traverse_value(const Value& v) {
 //==============================================================================
 
 void performance_comparison() {
-    constexpr size_t OBJECT_COUNT = 50000;  // 50,000 objects
+    constexpr size_t OBJECT_COUNT = 30000;  // 30,000 objects
     
     std::cout << "\n" << std::string(100, '=') << "\n";
     std::cout << "Performance Comparison: Four Methods (" << OBJECT_COUNT << " objects)\n";
@@ -885,7 +943,7 @@ void performance_comparison() {
     //==========================================================================
     std::cout << "=== Method 2: SharedMem (2-copy) ===\n";
     {
-        // Generate local Value
+        // Generate local Value first (before creating shared memory)
         Value data = generate_large_scene(OBJECT_COUNT);
         
         // Create shared memory
@@ -894,20 +952,22 @@ void performance_comparison() {
             std::cerr << "Failed to create shared memory!\n";
             return;
         }
-        
         shared_memory::set_current_shared_region(&region);
         
-        // Deep copy to shared memory
+        // Deep copy to shared memory (measure this)
         timer.start();
         SharedValue shared = deep_copy_to_shared(data);
         deep_copy_to_shared_time = timer.elapsed_ms();
+        
+        // Release local data immediately to free memory before copy back
+        data = Value{};
         
         // Deep copy back to local
         timer.start();
         Value local = deep_copy_to_local(shared);
         deep_copy_to_local_time_m2 = timer.elapsed_ms();
         
-        shared_memory_used_m2 = region.header()->heap_used.load();
+        shared_memory_used_m2 = region.header()->heap_used;
         
         shared_memory::set_current_shared_region(nullptr);
         region.close();
@@ -929,7 +989,6 @@ void performance_comparison() {
             std::cerr << "Failed to create shared memory!\n";
             return;
         }
-        
         shared_memory::set_current_shared_region(&region);
         
         // Construct directly in shared memory
@@ -942,7 +1001,7 @@ void performance_comparison() {
         Value local = deep_copy_to_local(shared_direct);
         deep_copy_to_local_time_m3 = timer.elapsed_ms();
         
-        shared_memory_used_m3 = region.header()->heap_used.load();
+        shared_memory_used_m3 = region.header()->heap_used;
         
         shared_memory::set_current_shared_region(nullptr);
         region.close();
@@ -955,7 +1014,6 @@ void performance_comparison() {
     
     //==========================================================================
     // Method 4: Shared Memory (ZERO-COPY: direct read, no copy!)
-    // This is true zero-copy - Editor directly reads data in shared memory
     //==========================================================================
     std::cout << "=== Method 4: SharedMem (TRUE ZERO-COPY - Direct Read) ===\n";
     double direct_read_time = 0;
@@ -967,14 +1025,12 @@ void performance_comparison() {
             std::cerr << "Failed to create shared memory!\n";
             return;
         }
-        
         shared_memory::set_current_shared_region(&region);
         
         // Construct directly in shared memory (Engine side)
         SharedValue shared_direct = generate_large_scene_shared(OBJECT_COUNT);
         
-        // ZERO-COPY: Editor directly traverses and reads data in shared memory, no copy at all!
-        // This simulates Editor read-only access to the scene (e.g., displaying properties in UI)
+        // ZERO-COPY: Editor directly traverses and reads data in shared memory
         timer.start();
         node_count = traverse_shared_value(shared_direct);
         direct_read_time = timer.elapsed_ms();
@@ -989,19 +1045,19 @@ void performance_comparison() {
     //==========================================================================
     // Results Summary
     //==========================================================================
-    // Time from Editor process perspective (not including Engine data construction time)
-    double editor_m1 = deserialize_time;           // Editor only needs to deserialize
-    double editor_m2 = deep_copy_to_local_time_m2; // Editor only needs deep_copy_to_local
-    double editor_m3 = deep_copy_to_local_time_m3; // Editor only needs deep_copy_to_local
-    double editor_m4 = direct_read_time;           // Editor reads directly, zero-copy!
-    
     std::cout << std::string(100, '=') << "\n";
     std::cout << "SUMMARY (" << OBJECT_COUNT << " objects)\n";
     std::cout << std::string(100, '-') << "\n";
-    std::cout << std::fixed << std::setprecision(2);
     std::cout << "                    | Method 1     | Method 2     | Method 3     | Method 4     \n";
     std::cout << "                    | (CustomBin)  | (2-copy)     | (1-copy)     | (ZERO-COPY)  \n";
     std::cout << std::string(100, '-') << "\n";
+    
+    double editor_m1 = deserialize_time;
+    double editor_m2 = deep_copy_to_local_time_m2;
+    double editor_m3 = deep_copy_to_local_time_m3;
+    double editor_m4 = direct_read_time;
+    
+    std::cout << std::fixed << std::setprecision(2);
     std::cout << "Engine side time    | " << std::setw(10) << serialize_time << " | " 
               << std::setw(10) << deep_copy_to_shared_time << " | " 
               << std::setw(10) << direct_build_time << " | " 
@@ -1010,37 +1066,11 @@ void performance_comparison() {
               << std::setw(10) << editor_m2 << " | " 
               << std::setw(10) << editor_m3 << " | " 
               << std::setw(10) << editor_m4 << " ms\n";
-    std::cout << "Data size (MB)      | " << std::setw(10) << (serialized_size / 1024.0 / 1024.0) << " | " 
-              << std::setw(10) << (shared_memory_used_m2 / 1024.0 / 1024.0) << " | " 
-              << std::setw(10) << (shared_memory_used_m3 / 1024.0 / 1024.0) << " | " 
-              << std::setw(10) << (shared_memory_used_m3 / 1024.0 / 1024.0) << " MB\n";
-    std::cout << std::string(100, '-') << "\n";
-    std::cout << "Engine speedup vs M3| " << std::setw(10) << (direct_build_time / serialize_time) << "x | " 
-              << std::setw(10) << (direct_build_time / deep_copy_to_shared_time) << "x | " 
-              << std::setw(10) << "1.00x" << " | "
-              << std::setw(10) << "1.00x\n";
-    std::cout << "Editor speedup vs M1| " << std::setw(10) << "1.00x" << " | " 
-              << std::setw(10) << (editor_m1 / editor_m2) << "x | " 
-              << std::setw(10) << (editor_m1 / editor_m3) << "x | "
-              << std::setw(10) << (editor_m1 / editor_m4) << "x\n";
     std::cout << std::string(100, '=') << "\n\n";
     
     std::cout << "Conclusion:\n";
     std::cout << "  - Method 4 (TRUE ZERO-COPY) is the FASTEST for read-only access!\n";
-    std::cout << "    Editor directly reads SharedValue in shared memory - NO COPY at all.\n";
-    std::cout << "    Speedup vs custom binary deserialization: " << (editor_m1 / editor_m4) << "x faster!\n\n";
-    
-    std::cout << "  - Method 3 (Direct SharedValue) is best for editable local copy.\n";
-    std::cout << "    Engine constructs directly in shared memory, Editor copies once.\n\n";
-    
-    std::cout << "  - Method 1 (CustomBin) has smallest data size.\n";
-    std::cout << "    Good option when shared memory is not available.\n\n";
-    
-    std::cout << "Recommendations:\n";
-    std::cout << "  - For READ-ONLY access: Use Method 4 (ZERO-COPY)\n";
-    std::cout << "  - For EDITABLE local copy: Use Method 3 (1-copy) or Method 1 (CustomBin)\n";
-    std::cout << "  - Use Method 4 for: UI display, property inspection, read-only queries.\n";
-    std::cout << "  - Use Method 3 for: Undo/redo, local modifications, state management.\n";
+    std::cout << "  - Method 3 (1-copy) is best for editable local copy.\n";
 }
 
 //==============================================================================
@@ -1288,22 +1318,433 @@ void value_vs_sync_comparison() {
 }
 
 //==============================================================================
+// Helper function: traverse FastSharedValue
+//==============================================================================
+
+size_t traverse_fast_shared_value(const FastSharedValue& sv) {
+    size_t count = 1;
+    
+    if (auto* map = sv.get_if<FastSharedValueMap>()) {
+        for (const auto& [key, box] : *map) {
+            count += traverse_fast_shared_value(box.get());
+        }
+    }
+    else if (auto* vec = sv.get_if<FastSharedValueVector>()) {
+        for (const auto& box : *vec) {
+            count += traverse_fast_shared_value(box.get());
+        }
+    }
+    else if (auto* arr = sv.get_if<FastSharedValueArray>()) {
+        for (const auto& box : *arr) {
+            count += traverse_fast_shared_value(box.get());
+        }
+    }
+    
+    return count;
+}
+
+//==============================================================================
+// Generate large-scale test data directly in shared memory - FastSharedValue version
+// Uses transient for O(n) construction instead of O(n log n)
+//==============================================================================
+
+FastSharedValue generate_large_scene_fast_shared(size_t object_count) {
+    std::cout << "Generating scene with " << object_count << " objects (FastSharedValue - O(n) transient)...\n";
+    
+    Timer timer;
+    timer.start();
+    
+    // FastSharedValue uses fake_transience_policy, so we can use transient for O(n) performance!
+    auto objects_transient = FastSharedValueVector{}.transient();
+    
+    for (size_t i = 0; i < object_count; ++i) {
+        auto obj_transient = FastSharedValueMap{}.transient();
+        obj_transient.set(shared_memory::SharedString("id"), 
+                          FastSharedValueBox{FastSharedValue{static_cast<int64_t>(i)}});
+        obj_transient.set(shared_memory::SharedString("name"), 
+                          FastSharedValueBox{FastSharedValue{"Object_" + std::to_string(i)}});
+        obj_transient.set(shared_memory::SharedString("visible"), 
+                          FastSharedValueBox{FastSharedValue{true}});
+        
+        // Transform properties (using transient for efficiency)
+        auto transform_transient = FastSharedValueMap{}.transient();
+        transform_transient.set(shared_memory::SharedString("x"), 
+                                FastSharedValueBox{FastSharedValue{static_cast<double>(i % 1000)}});
+        transform_transient.set(shared_memory::SharedString("y"), 
+                                FastSharedValueBox{FastSharedValue{static_cast<double>((i / 1000) % 1000)}});
+        transform_transient.set(shared_memory::SharedString("z"), 
+                                FastSharedValueBox{FastSharedValue{static_cast<double>(i / 1000000)}});
+        transform_transient.set(shared_memory::SharedString("rotation"), 
+                                FastSharedValueBox{FastSharedValue{static_cast<double>(i % 360)}});
+        transform_transient.set(shared_memory::SharedString("scale"), 
+                                FastSharedValueBox{FastSharedValue{1.0}});
+        obj_transient.set(shared_memory::SharedString("transform"), 
+                          FastSharedValueBox{FastSharedValue{transform_transient.persistent()}});
+        
+        // Material properties
+        auto material_transient = FastSharedValueMap{}.transient();
+        material_transient.set(shared_memory::SharedString("color"), 
+                               FastSharedValueBox{FastSharedValue{"#" + std::to_string(i % 0xFFFFFF)}});
+        material_transient.set(shared_memory::SharedString("opacity"), 
+                               FastSharedValueBox{FastSharedValue{1.0}});
+        material_transient.set(shared_memory::SharedString("roughness"), 
+                               FastSharedValueBox{FastSharedValue{0.5}});
+        obj_transient.set(shared_memory::SharedString("material"), 
+                          FastSharedValueBox{FastSharedValue{material_transient.persistent()}});
+        
+        // Tags
+        auto tags_transient = FastSharedValueVector{}.transient();
+        tags_transient.push_back(FastSharedValueBox{FastSharedValue{"tag_" + std::to_string(i % 10)}});
+        tags_transient.push_back(FastSharedValueBox{FastSharedValue{"layer_" + std::to_string(i % 5)}});
+        obj_transient.set(shared_memory::SharedString("tags"), 
+                          FastSharedValueBox{FastSharedValue{tags_transient.persistent()}});
+        
+        objects_transient.push_back(FastSharedValueBox{FastSharedValue{obj_transient.persistent()}});
+        
+        // Progress display
+        if ((i + 1) % 10000 == 0) {
+            std::cout << "  Generated " << (i + 1) << " objects...\n";
+        }
+    }
+    
+    auto scene_transient = FastSharedValueMap{}.transient();
+    scene_transient.set(shared_memory::SharedString("version"), 
+                        FastSharedValueBox{FastSharedValue{1}});
+    scene_transient.set(shared_memory::SharedString("name"), 
+                        FastSharedValueBox{FastSharedValue{"Large Scene (Fast)"}});
+    scene_transient.set(shared_memory::SharedString("objects"), 
+                        FastSharedValueBox{FastSharedValue{objects_transient.persistent()}});
+    
+    double elapsed = timer.elapsed_ms();
+    std::cout << "Scene generation completed in " << std::fixed << std::setprecision(2) 
+              << elapsed << " ms\n";
+    
+    return FastSharedValue{scene_transient.persistent()};
+}
+
+//==============================================================================
+// SharedValue vs FastSharedValue Performance Comparison
+// Compares O(n log n) construction vs O(n) transient construction
+//==============================================================================
+
+void shared_vs_fast_shared_comparison() {
+    constexpr size_t OBJECT_COUNT = 50000;  // 50,000 objects
+    
+    std::cout << "\n" << std::string(100, '=') << "\n";
+    std::cout << "SharedValue vs FastSharedValue Performance Comparison (" << OBJECT_COUNT << " objects)\n";
+    std::cout << std::string(100, '=') << "\n\n";
+    
+    std::cout << "This test compares:\n";
+    std::cout << "  - SharedValue:     no_transience_policy, O(n log n) construction\n";
+    std::cout << "  - FastSharedValue: fake_transience_policy, O(n) transient construction\n";
+    std::cout << "\n";
+    std::cout << "Both use the same shared memory allocator (bump allocator).\n";
+    std::cout << "The difference is in transient support for efficient bulk construction.\n";
+    std::cout << "\n";
+    
+    Timer timer;
+    
+    //==========================================================================
+    // Phase 1: Construction Performance (the key difference!)
+    //==========================================================================
+    std::cout << "=== Phase 1: Construction Performance (Key Difference) ===\n\n";
+    
+    double shared_construct_time = 0;
+    double fast_shared_construct_time = 0;
+    size_t shared_memory_used_1 = 0;
+    size_t shared_memory_used_2 = 0;
+    
+    // SharedValue construction (O(n log n) - no transient support)
+    std::cout << "--- SharedValue (no transient, O(n log n)) ---\n";
+    {
+        shared_memory::SharedMemoryRegion region;
+        if (!region.create("PerfTestShared", 1024 * 1024 * 1024)) {
+            std::cerr << "Failed to create shared memory!\n";
+            return;
+        }
+        shared_memory::set_current_shared_region(&region);
+        
+        timer.start();
+        SharedValue shared = generate_large_scene_shared(OBJECT_COUNT);
+        shared_construct_time = timer.elapsed_ms();
+        shared_memory_used_1 = region.header()->heap_used;
+        
+        shared_memory::set_current_shared_region(nullptr);
+        region.close();
+    }
+    
+    // FastSharedValue construction (O(n) - with transient support)
+    std::cout << "\n--- FastSharedValue (with transient, O(n)) ---\n";
+    {
+        shared_memory::SharedMemoryRegion region;
+        if (!region.create("PerfTestFastShared", 1024 * 1024 * 1024)) {
+            std::cerr << "Failed to create shared memory!\n";
+            return;
+        }
+        shared_memory::set_current_shared_region(&region);
+        
+        timer.start();
+        FastSharedValue fast_shared = generate_large_scene_fast_shared(OBJECT_COUNT);
+        fast_shared_construct_time = timer.elapsed_ms();
+        shared_memory_used_2 = region.header()->heap_used;
+        
+        shared_memory::set_current_shared_region(nullptr);
+        region.close();
+    }
+    
+    std::cout << "\n--- Construction Results ---\n";
+    std::cout << std::fixed << std::setprecision(2);
+    std::cout << "  SharedValue construction:     " << shared_construct_time << " ms (O(n log n))\n";
+    std::cout << "  FastSharedValue construction: " << fast_shared_construct_time << " ms (O(n))\n";
+    double speedup = shared_construct_time / fast_shared_construct_time;
+    std::cout << "  Speedup: " << speedup << "x faster with FastSharedValue!\n";
+    std::cout << "  Memory used (SharedValue):     " << (shared_memory_used_1 / 1024.0 / 1024.0) << " MB\n";
+    std::cout << "  Memory used (FastSharedValue): " << (shared_memory_used_2 / 1024.0 / 1024.0) << " MB\n\n";
+    
+    //==========================================================================
+    // Phase 2: Traversal Performance (should be similar)
+    //==========================================================================
+    std::cout << "=== Phase 2: Traversal Performance (should be similar) ===\n\n";
+    
+    double shared_traverse_time = 0;
+    double fast_shared_traverse_time = 0;
+    size_t shared_node_count = 0;
+    size_t fast_shared_node_count = 0;
+    
+    // SharedValue traversal
+    {
+        shared_memory::SharedMemoryRegion region;
+        if (!region.create("PerfTestSharedTrav", 1024 * 1024 * 1024)) {
+            std::cerr << "Failed to create shared memory!\n";
+            return;
+        }
+        shared_memory::set_current_shared_region(&region);
+        
+        SharedValue shared = generate_large_scene_shared(OBJECT_COUNT);
+        
+        timer.start();
+        shared_node_count = traverse_shared_value(shared);
+        shared_traverse_time = timer.elapsed_ms();
+        
+        shared_memory::set_current_shared_region(nullptr);
+        region.close();
+        
+        std::cout << "  SharedValue: Traversed " << shared_node_count << " nodes in " << shared_traverse_time << " ms\n";
+    }
+    
+    // FastSharedValue traversal
+    {
+        shared_memory::SharedMemoryRegion region;
+        if (!region.create("PerfTestFastSharedTrav", 1024 * 1024 * 1024)) {
+            std::cerr << "Failed to create shared memory!\n";
+            return;
+        }
+        shared_memory::set_current_shared_region(&region);
+        
+        FastSharedValue fast_shared = generate_large_scene_fast_shared(OBJECT_COUNT);
+        
+        timer.start();
+        fast_shared_node_count = traverse_fast_shared_value(fast_shared);
+        fast_shared_traverse_time = timer.elapsed_ms();
+        
+        shared_memory::set_current_shared_region(nullptr);
+        region.close();
+        
+        std::cout << "  FastSharedValue: Traversed " << fast_shared_node_count << " nodes in " << fast_shared_traverse_time << " ms\n";
+    }
+    
+    std::cout << "\n--- Traversal Results ---\n";
+    std::cout << "  SharedValue traversal time:     " << shared_traverse_time << " ms\n";
+    std::cout << "  FastSharedValue traversal time: " << fast_shared_traverse_time << " ms\n";
+    std::cout << "  (Traversal should be similar since both use same data structures)\n\n";
+    
+    //==========================================================================
+    // Phase 3: Deep Copy to Local Performance (should be similar)
+    //==========================================================================
+    std::cout << "=== Phase 3: Deep Copy to Local Performance ===\n\n";
+    
+    double shared_copy_time = 0;
+    double fast_shared_copy_time = 0;
+    
+    // SharedValue deep copy
+    {
+        shared_memory::SharedMemoryRegion region;
+        if (!region.create("PerfTestSharedCopy", 1024 * 1024 * 1024)) {
+            std::cerr << "Failed to create shared memory!\n";
+            return;
+        }
+        shared_memory::set_current_shared_region(&region);
+        
+        SharedValue shared = generate_large_scene_shared(OBJECT_COUNT);
+        
+        timer.start();
+        Value local = deep_copy_to_local(shared);
+        shared_copy_time = timer.elapsed_ms();
+        
+        shared_memory::set_current_shared_region(nullptr);
+        region.close();
+        
+        std::cout << "  SharedValue -> Value: " << shared_copy_time << " ms\n";
+    }
+    
+    // FastSharedValue deep copy
+    {
+        shared_memory::SharedMemoryRegion region;
+        if (!region.create("PerfTestFastSharedCopy", 1024 * 1024 * 1024)) {
+            std::cerr << "Failed to create shared memory!\n";
+            return;
+        }
+        shared_memory::set_current_shared_region(&region);
+        
+        FastSharedValue fast_shared = generate_large_scene_fast_shared(OBJECT_COUNT);
+        
+        timer.start();
+        Value local = fast_deep_copy_to_local(fast_shared);
+        fast_shared_copy_time = timer.elapsed_ms();
+        
+        shared_memory::set_current_shared_region(nullptr);
+        region.close();
+        
+        std::cout << "  FastSharedValue -> Value: " << fast_shared_copy_time << " ms\n";
+    }
+    
+    std::cout << "\n--- Deep Copy Results ---\n";
+    std::cout << "  SharedValue copy time:     " << shared_copy_time << " ms\n";
+    std::cout << "  FastSharedValue copy time: " << fast_shared_copy_time << " ms\n";
+    std::cout << "  (Deep copy should be similar since destination uses transient)\n\n";
+    
+    //==========================================================================
+    // Phase 4: Deep Copy TO Shared Memory (THE KEY DIFFERENCE!)
+    // This is where O(n log n) vs O(n) really matters!
+    //==========================================================================
+    std::cout << "=== Phase 4: Deep Copy TO Shared Memory (Key Difference!) ===\n\n";
+    std::cout << "This phase compares:\n";
+    std::cout << "  - deep_copy_to_shared():      Value -> SharedValue (O(n log n), no transient)\n";
+    std::cout << "  - fast_deep_copy_to_shared(): Value -> FastSharedValue (O(n), uses transient)\n\n";
+    
+    double to_shared_time = 0;
+    double to_fast_shared_time = 0;
+    size_t to_shared_memory = 0;
+    size_t to_fast_shared_memory = 0;
+    
+    // First, generate a local Value to copy from
+    std::cout << "Generating local Value for copy test...\n";
+    Value local_data = generate_large_scene(OBJECT_COUNT);
+    std::cout << "Local Value generated.\n\n";
+    
+    // Test deep_copy_to_shared (O(n log n) - no transient)
+    std::cout << "--- deep_copy_to_shared (O(n log n)) ---\n";
+    {
+        shared_memory::SharedMemoryRegion region;
+        if (!region.create("PerfTestToShared", 1024 * 1024 * 1024)) {
+            std::cerr << "Failed to create shared memory!\n";
+            return;
+        }
+        shared_memory::set_current_shared_region(&region);
+        
+        timer.start();
+        SharedValue shared = deep_copy_to_shared(local_data);
+        to_shared_time = timer.elapsed_ms();
+        to_shared_memory = region.header()->heap_used;
+        
+        std::cout << "  Time: " << to_shared_time << " ms\n";
+        std::cout << "  Memory used: " << (to_shared_memory / 1024.0 / 1024.0) << " MB\n";
+        
+        shared_memory::set_current_shared_region(nullptr);
+        region.close();
+    }
+    
+    // Test fast_deep_copy_to_shared (O(n) - uses transient)
+    std::cout << "\n--- fast_deep_copy_to_shared (O(n)) ---\n";
+    {
+        shared_memory::SharedMemoryRegion region;
+        if (!region.create("PerfTestToFastShared", 1024 * 1024 * 1024)) {
+            std::cerr << "Failed to create shared memory!\n";
+            return;
+        }
+        shared_memory::set_current_shared_region(&region);
+        
+        timer.start();
+        FastSharedValue fast_shared = fast_deep_copy_to_shared(local_data);
+        to_fast_shared_time = timer.elapsed_ms();
+        to_fast_shared_memory = region.header()->heap_used;
+        
+        std::cout << "  Time: " << to_fast_shared_time << " ms\n";
+        std::cout << "  Memory used: " << (to_fast_shared_memory / 1024.0 / 1024.0) << " MB\n";
+        
+        shared_memory::set_current_shared_region(nullptr);
+        region.close();
+    }
+    
+    std::cout << "\n--- Phase 4 Results (THE KEY COMPARISON!) ---\n";
+    double to_shared_speedup = to_shared_time / to_fast_shared_time;
+    double memory_ratio = static_cast<double>(to_shared_memory) / to_fast_shared_memory;
+    std::cout << "  deep_copy_to_shared:      " << to_shared_time << " ms, " 
+              << (to_shared_memory / 1024.0 / 1024.0) << " MB\n";
+    std::cout << "  fast_deep_copy_to_shared: " << to_fast_shared_time << " ms, "
+              << (to_fast_shared_memory / 1024.0 / 1024.0) << " MB\n";
+    std::cout << "  Speedup: " << to_shared_speedup << "x faster with fast_deep_copy_to_shared!\n";
+    std::cout << "  Memory ratio: " << memory_ratio << "x (SharedValue uses more due to O(n log n) intermediates)\n\n";
+    
+    //==========================================================================
+    // Summary
+    //==========================================================================
+    std::cout << std::string(100, '=') << "\n";
+    std::cout << "SUMMARY: SharedValue vs FastSharedValue Performance\n";
+    std::cout << std::string(100, '-') << "\n";
+    std::cout << std::fixed << std::setprecision(2);
+    std::cout << "                             | SharedValue   | FastSharedValue | Speedup\n";
+    std::cout << std::string(100, '-') << "\n";
+    std::cout << "Direct Construction (ms)     | " << std::setw(13) << shared_construct_time 
+              << " | " << std::setw(15) << fast_shared_construct_time 
+              << " | " << std::setw(6) << speedup << "x\n";
+    std::cout << "Copy TO Shared (ms) [KEY!]   | " << std::setw(13) << to_shared_time 
+              << " | " << std::setw(15) << to_fast_shared_time 
+              << " | " << std::setw(6) << to_shared_speedup << "x\n";
+    std::cout << "Memory for Copy (MB) [KEY!]  | " << std::setw(13) << (to_shared_memory / 1024.0 / 1024.0)
+              << " | " << std::setw(15) << (to_fast_shared_memory / 1024.0 / 1024.0)
+              << " | " << std::setw(6) << memory_ratio << "x\n";
+    std::cout << "Traversal (ms)               | " << std::setw(13) << shared_traverse_time 
+              << " | " << std::setw(15) << fast_shared_traverse_time 
+              << " | " << std::setw(6) << (shared_traverse_time / fast_shared_traverse_time) << "x\n";
+    std::cout << "Deep copy to local (ms)      | " << std::setw(13) << shared_copy_time 
+              << " | " << std::setw(15) << fast_shared_copy_time 
+              << " | " << std::setw(6) << (shared_copy_time / fast_shared_copy_time) << "x\n";
+    std::cout << std::string(100, '=') << "\n\n";
+    
+    std::cout << "Conclusion:\n";
+    std::cout << "  - [KEY] Copy TO Shared: fast_deep_copy_to_shared is " << to_shared_speedup << "x faster!\n";
+    std::cout << "  - [KEY] Memory Usage: fast version uses " << memory_ratio << "x less memory!\n";
+    std::cout << "  - Direct construction: both are fast (use std::move optimization)\n";
+    std::cout << "  - Traversal and deep copy to local are similar.\n";
+    std::cout << "\n";
+    
+    std::cout << "Recommendations:\n";
+    std::cout << "  - Use FastSharedValue when building large data structures (>10000 elements)\n";
+    std::cout << "  - Use SharedValue for small data or when you need the simplest API\n";
+    std::cout << "  - Both can be deep-copied to local Value for editing\n";
+    std::cout << "  - Both support zero-copy read-only access\n";
+}
+
+//==============================================================================
 // Main Function
 //==============================================================================
 
 void print_usage() {
     std::cout << "Usage: shared_value_demo [command]\n";
     std::cout << "\nCommands:\n";
-    std::cout << "  single       - Single process demo (default)\n";
-    std::cout << "  publish N    - Run as publisher with N objects\n";
-    std::cout << "  subscribe    - Run as subscriber\n";
-    std::cout << "  perf         - Performance comparison (4 methods)\n";
-    std::cout << "  value_sync   - Value vs SyncValue performance comparison\n";
+    std::cout << "  single         - Single process demo (default)\n";
+    std::cout << "  publish N      - Run as publisher with N objects\n";
+    std::cout << "  subscribe      - Run as subscriber\n";
+    std::cout << "  perf           - Performance comparison (4 methods)\n";
+    std::cout << "  value_sync     - Value vs SyncValue performance comparison\n";
+    std::cout << "  shared_fast    - SharedValue vs FastSharedValue comparison\n";
     std::cout << "\nExamples:\n";
     std::cout << "  shared_value_demo single\n";
     std::cout << "  shared_value_demo publish 10000\n";
     std::cout << "  shared_value_demo subscribe\n";
     std::cout << "  shared_value_demo value_sync\n";
+    std::cout << "  shared_value_demo shared_fast\n";
 }
 
 int main(int argc, char* argv[]) {
@@ -1334,6 +1775,9 @@ int main(int argc, char* argv[]) {
     }
     else if (command == "value_sync") {
         value_vs_sync_comparison();
+    }
+    else if (command == "shared_fast") {
+        shared_vs_fast_shared_comparison();
     }
     else {
         print_usage();
