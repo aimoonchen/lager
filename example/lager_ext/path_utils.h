@@ -11,11 +11,11 @@
 
 #include "value.h"
 
-namespace immer_lens {
+namespace lager_ext {
 
 // ============================================================
 // Path Element Access
-// 
+//
 // These inline functions provide direct access to Value elements
 // by key or index, used by all lens implementations.
 // ============================================================
@@ -55,7 +55,7 @@ namespace immer_lens {
 
 // ============================================================
 // Direct Path Traversal
-// 
+//
 // High-performance path traversal without lens composition overhead.
 // These functions directly walk the data structure.
 // ============================================================
@@ -83,15 +83,15 @@ namespace immer_lens {
 /// @param new_val The new value to set
 /// @return New root with the update applied
 [[nodiscard]] inline Value set_at_path_recursive(
-    const Value& root, 
-    const Path& path, 
+    const Value& root,
+    const Path& path,
     std::size_t path_index,
     Value new_val)
 {
     if (path_index >= path.size()) {
         return new_val;  // Base case: replace current node
     }
-    
+
     const auto& elem = path[path_index];
     Value current_child = get_at_path_element(root, elem);
     Value new_child = set_at_path_recursive(current_child, path, path_index + 1, std::move(new_val));
@@ -138,7 +138,7 @@ namespace immer_lens {
     if (path.empty()) {
         return Value{};  // Erase entire root
     }
-    
+
     // If last element is a string key, we can erase from map
     if (path.size() == 1) {
         if (auto* key = std::get_if<std::string>(&path[0])) {
@@ -147,7 +147,7 @@ namespace immer_lens {
         // For index, set to null (cannot truly remove without reindexing)
         return set_at_path_direct(root, path, Value{});
     }
-    
+
     // Navigate to parent and erase from there
     Path parent_path;
     parent_path.reserve(path.size() - 1);
@@ -155,14 +155,14 @@ namespace immer_lens {
         parent_path.push_back(path[i]);
     }
     const auto& last = path.back();
-    
+
     if (auto* key = std::get_if<std::string>(&last)) {
         // Get parent, erase key from it, set parent back
         Value parent = get_at_path_direct(root, parent_path);
         Value new_parent = erase_key_from_map(parent, *key);
         return set_at_path_direct(root, parent_path, new_parent);
     }
-    
+
     // For index removal, set to null
     return set_at_path_direct(root, path, Value{});
 }
@@ -232,4 +232,4 @@ namespace immer_lens {
     return depth;
 }
 
-} // namespace immer_lens
+} // namespace lager_ext

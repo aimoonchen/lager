@@ -5,7 +5,7 @@
 #include "path_utils.h"
 #include <iostream>
 
-namespace immer_lens {
+namespace lager_ext {
 
 // ============================================================
 // ErasedLens implementation
@@ -74,7 +74,7 @@ ErasedLens make_key_lens(const std::string& key)
             if (auto* m = obj.get_if<ValueMap>()) {
                 return Value{m->set(key, immer::box<Value>{std::move(value)})};
             }
-#ifdef IMMER_LENS_AUTO_VIVIFICATION
+#ifdef lager_ext_AUTO_VIVIFICATION
             // Auto-vivification: create new map
             ValueMap new_map;
             return Value{new_map.set(key, immer::box<Value>{std::move(value)})};
@@ -106,7 +106,7 @@ ErasedLens make_index_lens(std::size_t index)
                 }
                 return Value{vec.set(index, immer::box<Value>{std::move(value)})};
             }
-#ifdef IMMER_LENS_AUTO_VIVIFICATION
+#ifdef lager_ext_AUTO_VIVIFICATION
             // Auto-vivification: create new vector
             ValueVector new_vec;
             while (new_vec.size() <= index) {
@@ -123,7 +123,7 @@ ErasedLens make_index_lens(std::size_t index)
 
 // ============================================================
 // Optimized Path Lens Implementation
-// 
+//
 // Uses shared path_utils.h for direct traversal functions,
 // avoiding code duplication with lager_lens.cpp
 // ============================================================
@@ -133,7 +133,7 @@ ErasedLens path_lens(const Path& path)
     if (path.empty()) {
         return ErasedLens{}; // Identity lens
     }
-    
+
     // OPTIMIZED: Single lens with direct traversal instead of N nested compositions
     // Uses path_utils.h functions for efficient path access
     return ErasedLens{
@@ -155,32 +155,32 @@ ErasedLens path_lens(const Path& path)
 void demo_erased_lens()
 {
     std::cout << "\n=== Scheme 1: Custom ErasedLens Demo ===\n\n";
-    
+
     // Use common test data
     Value data = create_sample_data();
-    
+
     std::cout << "Data structure:\n";
     print_value(data, "", 1);
-    
+
     // Test path_lens
     std::cout << "\n--- Test 1: GET using path_lens ---\n";
     Path name_path = {std::string{"users"}, size_t{0}, std::string{"name"}};
     auto lens = path_lens(name_path);
-    
+
     std::cout << "Path: " << path_to_string(name_path) << "\n";
     std::cout << "Value: " << value_to_string(lens.get(data)) << "\n";
-    
+
     // Test SET
     std::cout << "\n--- Test 2: SET using path_lens ---\n";
     Value updated = lens.set(data, Value{std::string{"Alicia"}});
     std::cout << "After setting to \"Alicia\":\n";
     std::cout << "New value: " << value_to_string(lens.get(updated)) << "\n";
-    
+
     // Test OVER
     std::cout << "\n--- Test 3: OVER using path_lens ---\n";
     Path age_path = {std::string{"users"}, size_t{1}, std::string{"age"}};
     auto age_lens = path_lens(age_path);
-    
+
     std::cout << "Original age: " << value_to_string(age_lens.get(data)) << "\n";
     Value incremented = age_lens.over(data, [](Value v) {
         if (auto* n = v.get_if<int>()) {
@@ -189,13 +189,13 @@ void demo_erased_lens()
         return v;
     });
     std::cout << "After +5: " << value_to_string(age_lens.get(incremented)) << "\n";
-    
+
     // Test composition with | operator
     std::cout << "\n--- Test 4: Composition with | operator ---\n";
     auto config_version = make_key_lens("config") | make_key_lens("version");
     std::cout << "config.version = " << value_to_string(config_version.get(data)) << "\n";
-    
+
     std::cout << "\n=== Demo End ===\n\n";
 }
 
-} // namespace immer_lens
+} // namespace lager_ext

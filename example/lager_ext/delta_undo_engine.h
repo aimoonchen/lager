@@ -8,10 +8,10 @@
 /// of "system state persistence across undo/redo operations":
 ///
 /// Problem Scenario:
-///   T1: User Action A → state1 (recorded)
-///   T2: System Action S (e.g., lazy load) → state2 (NOT recorded)  
-///   T3: User Action B → state3 (recorded)
-///   
+///   T1: User Action A -> state1 (recorded)
+///   T2: System Action S (e.g., lazy load) -> state2 (NOT recorded)
+///   T3: User Action B -> state3 (recorded)
+///
 ///   When user performs Undo (to undo B):
 ///   - With snapshot-based undo: restores state1, LOSING system changes from S
 ///   - With delta-based undo: applies inverse of B to current state, PRESERVING S
@@ -44,7 +44,7 @@
 #include <variant>
 #include <vector>
 
-namespace immer_lens {
+namespace lager_ext {
 namespace delta_undo {
 
 // ============================================================
@@ -100,7 +100,7 @@ struct UIMeta {
     std::string type_name;
     std::string icon_name;
     std::vector<PropertyMeta> properties;
-    
+
     [[nodiscard]] const PropertyMeta* find_property(const std::string& name) const {
         for (const auto& prop : properties) {
             if (prop.name == name) return &prop;
@@ -138,13 +138,13 @@ struct SceneState {
 /// This is the key difference from snapshot-based undo.
 struct Delta {
     std::string description;  // Human-readable description of the operation
-    
+
     /// Apply the change to produce the new state (forward)
     std::function<SceneState(const SceneState&)> apply_fn;
-    
+
     /// Reverse the change to restore the previous state (backward)
     std::function<SceneState(const SceneState&)> unapply_fn;
-    
+
     /// Constructor for creating a delta
     Delta(std::string desc,
           std::function<SceneState(const SceneState&)> apply,
@@ -153,7 +153,7 @@ struct Delta {
         , apply_fn(std::move(apply))
         , unapply_fn(std::move(unapply))
     {}
-    
+
     /// Default constructor for variant compatibility
     Delta() : description("empty"), apply_fn([](const SceneState& s) { return s; }),
               unapply_fn([](const SceneState& s) { return s; }) {}
@@ -270,18 +270,18 @@ struct SystemState {
 struct DeltaModel {
     SceneState scene;
     SystemState system;
-    
+
     // Delta stacks for undo/redo
     immer::flex_vector<Delta> undo_stack;
     immer::flex_vector<Delta> redo_stack;
-    
+
     // Transaction support - accumulates deltas into a single compound delta
     std::optional<std::string> transaction_description;
     std::vector<Delta> transaction_deltas;  // Temporary storage during transaction
-    
+
     // Configuration
     static constexpr std::size_t max_history = 100;
-    
+
     // Dirty flag
     bool dirty = false;
 };
@@ -299,23 +299,23 @@ public:
         const std::string& property_path,
         const Value& old_value,
         const Value& new_value);
-    
+
     /// Create delta for setting multiple properties
     static Delta create_set_properties_delta(
         const std::string& object_id,
         const std::map<std::string, Value>& old_values,
         const std::map<std::string, Value>& new_values);
-    
+
     /// Create delta for adding an object
     static Delta create_add_object_delta(
         const SceneObject& object,
         const std::string& parent_id);
-    
+
     /// Create delta for removing an object
     static Delta create_remove_object_delta(
         const SceneObject& object,
         const std::string& parent_id);
-    
+
     /// Compose multiple deltas into a single compound delta
     static Delta compose_deltas(
         const std::string& description,
@@ -342,30 +342,30 @@ class DeltaController {
 public:
     DeltaController();
     ~DeltaController();
-    
+
     // Initialize with scene state
     void initialize(const SceneState& initial_state);
-    
+
     // Dispatch actions
     void dispatch(DeltaAction action);
-    
+
     // Get current state
     [[nodiscard]] const DeltaModel& get_model() const;
     [[nodiscard]] const SceneState& get_scene() const;
     [[nodiscard]] const SceneObject* get_object(const std::string& id) const;
     [[nodiscard]] const SceneObject* get_selected_object() const;
-    
+
     // Property access
     [[nodiscard]] Value get_property(const std::string& object_id, const std::string& path) const;
     void set_property(const std::string& object_id, const std::string& path, Value value);
-    
+
     // Batch property updates (creates single undo entry)
     void set_properties(const std::string& object_id, const std::map<std::string, Value>& updates);
-    
+
     // Transaction support - group multiple operations into single undo
     void begin_transaction(const std::string& description);
     void end_transaction();
-    
+
     // Undo/Redo
     [[nodiscard]] bool can_undo() const;
     [[nodiscard]] bool can_redo() const;
@@ -373,15 +373,15 @@ public:
     [[nodiscard]] std::string get_redo_description() const;
     void undo();
     void redo();
-    
+
     // History info
     [[nodiscard]] std::size_t undo_count() const;
     [[nodiscard]] std::size_t redo_count() const;
     void clear_history();
-    
+
     // Process pending events
     void step();
-    
+
     // Watch for changes
     using WatchCallback = std::function<void(const DeltaModel&)>;
     [[nodiscard]] std::function<void()> watch(WatchCallback callback);
@@ -409,4 +409,4 @@ void demo_transactions();
 void demo_interleaved_operations();
 
 } // namespace delta_undo
-} // namespace immer_lens
+} // namespace lager_ext

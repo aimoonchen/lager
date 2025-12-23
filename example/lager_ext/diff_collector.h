@@ -11,14 +11,14 @@
 #include "value.h"
 #include <vector>
 
-namespace immer_lens {
+namespace lager_ext {
 
 // ============================================================
 // DiffEntry structure - records a single change
 // ============================================================
 struct DiffEntry {
     enum class Type { Add, Remove, Change };
-    
+
     Type type;
     Path path;              // Path to the changed value
     std::string old_value;  // String representation of old value
@@ -27,9 +27,9 @@ struct DiffEntry {
 
 // ============================================================
 // RecursiveDiffCollector
-// 
+//
 // Recursively collects all differences between two Value states.
-// 
+//
 // Optimizations:
 // 1. Uses immer::box pointer comparison for O(1) unchanged subtree skipping
 // 2. Uses immer::diff for map comparisons (efficient for structural sharing)
@@ -54,10 +54,10 @@ public:
 
     // Access results
     [[nodiscard]] const std::vector<DiffEntry>& get_diffs() const;
-    
+
     // Clear collected diffs
     void clear();
-    
+
     // Check if there are any changes
     [[nodiscard]] bool has_changes() const;
 
@@ -75,4 +75,4 @@ void demo_immer_diff();
 // Demo: Full recursive diff collection
 void demo_recursive_diff_collector();
 
-} // namespace immer_lens
+} // namespace lager_ext

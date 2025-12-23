@@ -1,11 +1,11 @@
-# pathlens/CMakeLists.txt
-# CMake configuration for the PathLens project
+# lager_ext/CMakeLists.txt
+# CMake configuration for the lager_ext project
 #
 # This directory contains the following sub-projects:
-# 1. pathlens (static library) - Core functionality library
+# 1. lager_ext (static library) - Core functionality library
 # 2. Editor (executable) - Editor process (Process A), supports both QML and Widgets modes
 # 3. Engine (executable) - Engine process (Process B)
-# 4. PathLensTest (executable) - Test program
+# 4. lager_extTest (executable) - Test program
 
 cmake_minimum_required(VERSION 3.16)
 
@@ -43,10 +43,10 @@ endif()
 message(STATUS "Using Boost from: ${Boost_INCLUDE_DIR}")
 
 # ============================================================
-# pathlens Static Library
+# lager_ext Static Library
 # ============================================================
 
-set(PATHLENS_LIB_SOURCES
+set(lager_ext_LIB_SOURCES
     value.cpp
     erased_lens.cpp
     lager_lens.cpp
@@ -60,7 +60,7 @@ set(PATHLENS_LIB_SOURCES
     delta_undo_engine.cpp
 )
 
-set(PATHLENS_LIB_HEADERS
+set(lager_ext_LIB_HEADERS
     value.h
     erased_lens.h
     lager_lens.h
@@ -75,48 +75,48 @@ set(PATHLENS_LIB_HEADERS
     delta_undo_engine.h
 )
 
-add_library(pathlens STATIC ${PATHLENS_LIB_SOURCES} ${PATHLENS_LIB_HEADERS})
+add_library(lager_ext STATIC ${lager_ext_LIB_SOURCES} ${lager_ext_LIB_HEADERS})
 
-target_include_directories(pathlens PUBLIC
+target_include_directories(lager_ext PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${LAGER_INCLUDE_DIR}
 )
 
 # Third-party libraries use SYSTEM flag to suppress their internal warnings
-target_include_directories(pathlens SYSTEM PUBLIC
+target_include_directories(lager_ext SYSTEM PUBLIC
     ${IMMER_INCLUDE_DIR}
     ${ZUG_INCLUDE_DIR}
     ${Boost_INCLUDE_DIR}
 )
 
 # Compiler macro definitions
-target_compile_definitions(pathlens PUBLIC
+target_compile_definitions(lager_ext PUBLIC
     # zug uses std::variant instead of Boost.Variant
     ZUG_VARIANT_STD
     # Boost.Interprocess needs this macro to avoid linking date_time library
     BOOST_DATE_TIME_NO_LIB
 )
 
-target_compile_features(pathlens PUBLIC cxx_std_20)
+target_compile_features(lager_ext PUBLIC cxx_std_20)
 
 if(MSVC)
     # /utf-8: Use UTF-8 for source and execution character sets
     # /W3: Warning level 3
     # /Zc:preprocessor: Use standards-conforming preprocessor
     # /bigobj: Support large object files
-    target_compile_options(pathlens PRIVATE /W3 /Zc:preprocessor /bigobj /utf-8)
+    target_compile_options(lager_ext PRIVATE /W3 /Zc:preprocessor /bigobj /utf-8)
 endif()
 
 # ============================================================
-# PathLensTest Executable (Test Program)
+# lager_extTest Executable (Test Program)
 # ============================================================
 
-add_executable(PathLensTest main.cpp)
+add_executable(lager_extTest main.cpp)
 
-target_link_libraries(PathLensTest PRIVATE pathlens)
+target_link_libraries(lager_extTest PRIVATE lager_ext)
 
 if(MSVC)
-    target_compile_options(PathLensTest PRIVATE /W3 /Zc:preprocessor /bigobj /utf-8)
+    target_compile_options(lager_extTest PRIVATE /W3 /Zc:preprocessor /bigobj /utf-8)
 endif()
 
 # ============================================================
@@ -126,7 +126,7 @@ endif()
 # Engine uses shared_value_demo.cpp as main program
 add_executable(Engine shared_value_demo.cpp)
 
-target_link_libraries(Engine PRIVATE pathlens)
+target_link_libraries(Engine PRIVATE lager_ext)
 
 if(MSVC)
     target_compile_options(Engine PRIVATE /W3 /Zc:preprocessor /bigobj /utf-8)
@@ -139,34 +139,34 @@ endif()
 
 if(Qt5_FOUND)
     add_executable(Editor editor_main.cpp)
-    
+
     set_target_properties(Editor PROPERTIES AUTOMOC ON)
-    
-    target_link_libraries(Editor PRIVATE 
-        pathlens
-        Qt5::Core 
+
+    target_link_libraries(Editor PRIVATE
+        lager_ext
+        Qt5::Core
         Qt5::Concurrent
-        Qt5::Gui 
+        Qt5::Gui
         Qt5::Widgets
     )
-    
+
     # QML support (if Qml and QuickControls2 are available)
     if(Qt5Qml_FOUND AND Qt5QuickControls2_FOUND)
         target_link_libraries(Editor PRIVATE
-            Qt5::Qml 
+            Qt5::Qml
             Qt5::QuickControls2
         )
         target_compile_definitions(Editor PRIVATE EDITOR_HAS_QML=1)
     endif()
-    
+
     target_compile_definitions(Editor PRIVATE
-        LAGER_PATHLENS_QML_DIR="${CMAKE_CURRENT_SOURCE_DIR}/qml"
+        LAGER_EXT_QML_DIR="${CMAKE_CURRENT_SOURCE_DIR}/qml"
     )
-    
+
     if(MSVC)
         target_compile_options(Editor PRIVATE /W3 /Zc:preprocessor /bigobj /utf-8)
     endif()
-    
+
     message(STATUS "Editor target configured with Qt support")
     if(Qt5Qml_FOUND AND Qt5QuickControls2_FOUND)
         message(STATUS "  - QML support: enabled")
@@ -179,10 +179,10 @@ endif()
 
 # Note: Engine executable already includes SharedValue demo functionality
 # Uncomment below if a separate demo is needed
-# 
+#
 # if(WIN32)
 #     add_executable(SharedValueDemo shared_value_demo.cpp)
-#     target_link_libraries(SharedValueDemo PRIVATE pathlens)
+#     target_link_libraries(SharedValueDemo PRIVATE lager_ext)
 #     if(MSVC)
 #         target_compile_options(SharedValueDemo PRIVATE /W3 /Zc:preprocessor /bigobj)
 #     endif()
@@ -193,7 +193,7 @@ endif()
 # ============================================================
 
 if(TARGET examples)
-    add_dependencies(examples PathLensTest Engine)
+    add_dependencies(examples lager_extTest Engine)
     if(TARGET Editor)
         add_dependencies(examples Editor)
     endif()
@@ -204,7 +204,7 @@ endif()
 # ============================================================
 
 message(STATUS "")
-message(STATUS "PathLens Project Configuration:")
+message(STATUS "lager_ext Project Configuration:")
 message(STATUS "  Boost include: ${Boost_INCLUDE_DIR}")
 message(STATUS "  Immer include: ${IMMER_INCLUDE_DIR}")
 message(STATUS "  Zug include: ${ZUG_INCLUDE_DIR}")

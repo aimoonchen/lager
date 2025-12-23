@@ -28,7 +28,7 @@
 #include <iostream>
 #include <string>
 
-using namespace immer_lens;
+using namespace lager_ext;
 
 // ============================================================
 // Application State and Actions
@@ -161,8 +161,8 @@ int main()
 {
     auto loop  = lager::with_manual_event_loop{};
     auto store = lager::make_store<Action>(
-        create_initial_state(), 
-        loop, 
+        create_initial_state(),
+        loop,
         lager::with_reducer(reducer)
     );
 
@@ -281,7 +281,7 @@ int main()
         default:
             std::cout << "Invalid choice!\n";
         }
-        
+
         std::cout << "\n";
     }
 }

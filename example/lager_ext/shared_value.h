@@ -56,7 +56,7 @@ namespace shared_memory {
 //==============================================================================
 
 // Shared memory header information
-// 
+//
 // Memory layout (64-bit systems):
 // +--------+--------+----------------+------------+-------------+
 // | magic  | version| fixed_base_addr| total_size | heap_offset |
@@ -79,13 +79,13 @@ struct alignas(64) SharedMemoryHeader {
     size_t   heap_used;                   // Heap area used size
     size_t   value_offset;                // Value object offset (0 = uninitialized)
     uint64_t _padding;                    // Explicit padding for 64-byte alignment
-    
+
     static constexpr uint32_t MAGIC = 0x53484D56; // "SHMV"
     static constexpr uint32_t CURRENT_VERSION = 1;
 };
 
 // Ensure header is exactly 64 bytes for cross-compiler compatibility
-static_assert(sizeof(SharedMemoryHeader) == 64, 
+static_assert(sizeof(SharedMemoryHeader) == 64,
     "SharedMemoryHeader must be 64 bytes for cache line alignment");
 
 // Shared memory region
@@ -94,14 +94,14 @@ public:
     // Recommended fixed base address (choose a high address unlikely to be occupied)
     // Windows x64: User space is 0x00000000 - 0x7FFFFFFFFFFF
     static constexpr void* DEFAULT_BASE_ADDRESS = reinterpret_cast<void*>(0x0000600000000000ULL);
-    
+
     SharedMemoryRegion() = default;
     ~SharedMemoryRegion() { close(); }
-    
+
     // Non-copyable
     SharedMemoryRegion(const SharedMemoryRegion&) = delete;
     SharedMemoryRegion& operator=(const SharedMemoryRegion&) = delete;
-    
+
     // Movable
     SharedMemoryRegion(SharedMemoryRegion&& other) noexcept {
         swap(other);
@@ -113,17 +113,17 @@ public:
         }
         return *this;
     }
-    
+
     // Create new shared memory region (called by process B)
     bool create(const char* name, size_t size, void* base_address = DEFAULT_BASE_ADDRESS) {
         using namespace boost::interprocess;
-        
+
         close();
-        
+
         name_ = name;
         size_ = size;
         is_owner_ = true;
-        
+
         try {
             shm_ = std::make_unique<windows_shared_memory>(
                 create_only,
@@ -131,7 +131,7 @@ public:
                 read_write,
                 size
             );
-            
+
             // Try to map to fixed address
             region_ = std::make_unique<mapped_region>(
                 *shm_,
@@ -140,13 +140,13 @@ public:
                 size,
                 base_address
             );
-            
+
             void* base = region_->get_address();
             if (!base) {
                 close();
                 return false;
             }
-            
+
             // Initialize header
             auto* header = reinterpret_cast<SharedMemoryHeader*>(base);
             header->magic = SharedMemoryHeader::MAGIC;
@@ -157,7 +157,7 @@ public:
             header->heap_size = size - sizeof(SharedMemoryHeader);
             header->heap_used = 0;
             header->value_offset = 0;
-            
+
             return true;
         }
         catch (const interprocess_exception&) {
@@ -165,35 +165,35 @@ public:
             return false;
         }
     }
-    
+
     // Open existing shared memory region (called by process A)
     bool open(const char* name) {
         using namespace boost::interprocess;
-        
+
         close();
-        
+
         name_ = name;
         is_owner_ = false;
-        
+
         try {
             shm_ = std::make_unique<windows_shared_memory>(
                 open_only,
                 name,
                 read_write
             );
-            
+
             // First map header to get fixed base address and size
             mapped_region temp_region(*shm_, read_only, 0, sizeof(SharedMemoryHeader));
-            
+
             auto* temp_header = reinterpret_cast<SharedMemoryHeader*>(temp_region.get_address());
             if (temp_header->magic != SharedMemoryHeader::MAGIC) {
                 close();
                 return false;
             }
-            
+
             void* fixed_base = temp_header->fixed_base_address;
             size_ = temp_header->total_size;
-            
+
             // Try to map to the same fixed address
             region_ = std::make_unique<mapped_region>(
                 *shm_,
@@ -202,15 +202,15 @@ public:
                 size_,
                 fixed_base
             );
-            
+
             void* base = region_->get_address();
-            
+
             // Verify mapping address
             if (base != fixed_base) {
                 close();
                 return false;
             }
-            
+
             return true;
         }
         catch (const interprocess_exception&) {
@@ -218,31 +218,31 @@ public:
             return false;
         }
     }
-    
+
     void close() {
         region_.reset();
         shm_.reset();
         size_ = 0;
         is_owner_ = false;
     }
-    
+
     bool is_valid() const { return region_ && region_->get_address() != nullptr; }
     void* base() const { return region_ ? region_->get_address() : nullptr; }
     size_t size() const { return size_; }
     bool is_owner() const { return is_owner_; }
-    
+
     SharedMemoryHeader* header() const {
         return reinterpret_cast<SharedMemoryHeader*>(base());
     }
-    
+
     void* heap_base() const {
         void* b = base();
         if (!b) return nullptr;
         return reinterpret_cast<char*>(b) + header()->heap_offset;
     }
-    
+
     // Allocate memory in heap area (single-threaded bump allocator)
-    // 
+    //
     // This allocator is designed for single-writer scenarios:
     // - Uses a local cursor for zero-overhead allocation
     // - No atomic operations or memory barriers
@@ -252,26 +252,26 @@ public:
     // Performance: O(1) - just pointer arithmetic
     void* allocate(size_t size, size_t alignment = 8) {
         if (!base()) return nullptr;
-        
+
         auto* h = header();
         size_t aligned_size = (size + alignment - 1) & ~(alignment - 1);
-        
+
         // Initialize local cursor from shared state if needed
         if (local_heap_cursor_ == 0) {
             local_heap_cursor_ = h->heap_used;
         }
-        
+
         size_t current = local_heap_cursor_;
         size_t next = current + aligned_size;
-        
+
         if (next > h->heap_size) {
             return nullptr;  // Out of memory
         }
-        
+
         local_heap_cursor_ = next;
         return reinterpret_cast<char*>(heap_base()) + current;
     }
-    
+
     // Sync local cursor back to shared header
     // Call this after a batch of allocations
     void sync_allocation_cursor() {
@@ -279,17 +279,17 @@ public:
             header()->heap_used = local_heap_cursor_;
         }
     }
-    
+
     // Reset local cursor (call after sync or when starting fresh)
     void reset_local_cursor() {
         local_heap_cursor_ = 0;
     }
-    
+
     // Get current local cursor value (for debugging/diagnostics)
     size_t local_cursor() const {
         return local_heap_cursor_;
     }
-    
+
 private:
     void swap(SharedMemoryRegion& other) noexcept {
         std::swap(shm_, other.shm_);
@@ -299,13 +299,13 @@ private:
         std::swap(name_, other.name_);
         std::swap(local_heap_cursor_, other.local_heap_cursor_);
     }
-    
+
     std::unique_ptr<boost::interprocess::windows_shared_memory> shm_;
     std::unique_ptr<boost::interprocess::mapped_region> region_;
     size_t size_ = 0;
     bool is_owner_ = false;
     std::string name_;
-    
+
     // Local cursor for allocation (zero overhead bump allocator)
     // This is NOT in shared memory - each process has its own cursor
     size_t local_heap_cursor_ = 0;
@@ -337,11 +337,11 @@ class SharedString {
 public:
     static constexpr size_t SSO_CAPACITY = 15;
     static constexpr size_t MAX_STRING_SIZE = 256 * 1024 * 1024; // 256 MB safety limit
-    
+
     SharedString() noexcept : size_(0) {
         inline_data_[0] = '\0';
     }
-    
+
     SharedString(const char* str) {
         if (!str) {
             size_ = 0;
@@ -354,14 +354,14 @@ public:
         }
         init_from(str, len);
     }
-    
+
     SharedString(const std::string& str) {
         if (str.size() > MAX_STRING_SIZE) {
             throw std::length_error("SharedString: string too large (limit 256MB)");
         }
         init_from(str.data(), str.size());
     }
-    
+
     SharedString(const char* str, size_t len) {
         if (len > MAX_STRING_SIZE) {
             throw std::length_error("SharedString: string too large (limit 256MB)");
@@ -376,21 +376,21 @@ public:
         }
         init_from(str, len);
     }
-    
+
     /// @brief Copy constructor
-    /// 
+    ///
     /// **WARNING: Shallow copy semantics for heap-allocated strings!**
-    /// 
+    ///
     /// When copying a heap-allocated SharedString outside of a shared memory context:
     /// - The new SharedString will reference the SAME data as the original
     /// - If the original's shared memory region is closed, the copy becomes INVALID
     /// - This is intentional for zero-copy read-only access in Process A
-    /// 
+    ///
     /// Safe usage patterns:
     /// 1. Process A reads SharedValue from shared memory (shallow copy OK - read only)
     /// 2. Process B constructs SharedValue (deep copy - has shared memory context)
     /// 3. Use to_string() to get an independent std::string copy
-    /// 
+    ///
     /// Unsafe patterns:
     /// - Storing a copied SharedString after closing the shared memory region
     /// - Modifying a shallow-copied SharedString (would corrupt shared memory)
@@ -403,13 +403,13 @@ public:
             // Heap strings need shared memory context for allocation
             if (!g_current_shared_region || !g_current_shared_region->is_valid()) {
                 // No shared memory context - SHALLOW COPY (reference semantics)
-                // 
+                //
                 // This is intentional for the following scenarios:
                 // 1. Process A reading from shared memory (read-only access)
-                // 2. The original SharedString's data remains valid as long as 
+                // 2. The original SharedString's data remains valid as long as
                 //    the shared memory region is open
-                // 
-                // ⚠️ WARNING: The copied SharedString is NOT independently valid!
+                //
+                // [WARNING] WARNING: The copied SharedString is NOT independently valid!
                 //    It references the original's data in shared memory.
                 //    DO NOT use after closing the shared memory region!
                 size_ = other.size_;
@@ -420,7 +420,7 @@ public:
             }
         }
     }
-    
+
     SharedString(SharedString&& other) noexcept {
         size_ = other.size_;
         if (other.is_inline()) {
@@ -431,7 +431,7 @@ public:
             other.inline_data_[0] = '\0';
         }
     }
-    
+
     SharedString& operator=(const SharedString& other) {
         if (this != &other) {
             SharedString temp(other);
@@ -439,64 +439,64 @@ public:
         }
         return *this;
     }
-    
+
     SharedString& operator=(SharedString&& other) noexcept {
         if (this != &other) {
             swap(other);
         }
         return *this;
     }
-    
+
     // Destructor does nothing (using bump allocator)
     ~SharedString() = default;
-    
+
     // Basic accessors
     const char* data() const noexcept {
         return is_inline() ? inline_data_ : heap_data_;
     }
-    
+
     const char* c_str() const noexcept { return data(); }
     size_t size() const noexcept { return size_; }
     size_t length() const noexcept { return size_; }
     bool empty() const noexcept { return size_ == 0; }
-    
+
     const char* begin() const noexcept { return data(); }
     const char* end() const noexcept { return data() + size_; }
-    
+
     char operator[](size_t pos) const noexcept { return data()[pos]; }
     char at(size_t pos) const {
         if (pos >= size_) throw std::out_of_range("SharedString::at");
         return data()[pos];
     }
-    
+
     std::string to_string() const { return std::string(data(), size_); }
     operator std::string() const { return to_string(); }
-    
+
     bool operator==(const SharedString& other) const noexcept {
         if (size_ != other.size_) return false;
         return std::memcmp(data(), other.data(), size_) == 0;
     }
-    
+
     bool operator!=(const SharedString& other) const noexcept {
         return !(*this == other);
     }
-    
+
     bool operator<(const SharedString& other) const noexcept {
-        int cmp = std::memcmp(data(), other.data(), 
+        int cmp = std::memcmp(data(), other.data(),
                               size_ < other.size_ ? size_ : other.size_);
         if (cmp != 0) return cmp < 0;
         return size_ < other.size_;
     }
-    
+
     bool operator==(const std::string& other) const noexcept {
         if (size_ != other.size()) return false;
         return std::memcmp(data(), other.data(), size_) == 0;
     }
-    
+
     bool operator==(const char* other) const noexcept {
         return std::strcmp(data(), other ? other : "") == 0;
     }
-    
+
     // Hash support (for immer::map keys)
     size_t hash() const noexcept {
         // FNV-1a hash
@@ -512,7 +512,7 @@ private:
     bool is_inline() const noexcept {
         return size_ <= SSO_CAPACITY;
     }
-    
+
     void init_from(const char* str, size_t len) {
         size_ = len;
         if (len <= SSO_CAPACITY) {
@@ -531,15 +531,15 @@ private:
             heap_data_ = buf;
         }
     }
-    
+
     void swap(SharedString& other) noexcept {
         size_t this_size = size_;
         size_t other_size = other.size_;
         bool this_inline = is_inline();
         bool other_inline = other.is_inline();
-        
+
         std::swap(size_, other.size_);
-        
+
         if (this_inline && other_inline) {
             char temp[SSO_CAPACITY + 1];
             std::memcpy(temp, inline_data_, SSO_CAPACITY + 1);
@@ -560,7 +560,7 @@ private:
             }
         }
     }
-    
+
     size_t size_;
     union {
         char inline_data_[SSO_CAPACITY + 1];
@@ -593,7 +593,7 @@ struct hash<shared_memory::SharedString> {
 
 //==============================================================================
 // Shared Memory Heap - Conforms to immer heap interface
-// 
+//
 // A minimal bump allocator optimized for one-time construction:
 // - Allocation: O(1), just pointer arithmetic
 // - Deallocation: No-op (entire region is released together)
@@ -607,7 +607,7 @@ namespace shared_memory {
 // - deallocate(size_t, void*) - deallocation (no-op)
 //
 // DEFAULT: Uses single-threaded allocator (zero atomic overhead)
-// 
+//
 // IMPORTANT: After all allocations are done, call:
 //   g_current_shared_region->sync_allocation_cursor();
 // to persist the final cursor position to shared memory header.
@@ -616,14 +616,14 @@ class shared_memory_error : public std::bad_alloc {
 public:
     enum class error_type {
         no_region,          // g_current_shared_region is nullptr
-        invalid_region,     // Region is closed or not properly initialized  
+        invalid_region,     // Region is closed or not properly initialized
         out_of_memory       // Heap exhausted
     };
-    
-    explicit shared_memory_error(error_type type, size_t requested = 0, 
+
+    explicit shared_memory_error(error_type type, size_t requested = 0,
                                   size_t used = 0, size_t total = 0) noexcept
         : type_(type), requested_(requested), used_(used), total_(total) {}
-    
+
     const char* what() const noexcept override {
         switch (type_) {
             case error_type::no_region:
@@ -637,12 +637,12 @@ public:
                 return "shared_heap: unknown error";
         }
     }
-    
+
     error_type type() const noexcept { return type_; }
     size_t requested() const noexcept { return requested_; }
     size_t used() const noexcept { return used_; }
     size_t total() const noexcept { return total_; }
-    
+
 private:
     error_type type_;
     size_t requested_;
@@ -652,12 +652,12 @@ private:
 
 struct shared_heap {
     using type = shared_heap;
-    
+
     // Alignment requirement for SharedValue (ensure all allocations meet this)
     static constexpr size_t ALIGNMENT = 16;
-    
+
     // Allocate memory from shared memory region
-    // 
+    //
     // Uses the bump allocator which:
     // - Uses a local cursor (no atomic operations)
     // - Allows full compiler optimization
@@ -671,7 +671,7 @@ struct shared_heap {
         if (!g_current_shared_region->is_valid()) {
             throw shared_memory_error(shared_memory_error::error_type::invalid_region);
         }
-        
+
         // Use bump allocator for maximum performance
         void* p = g_current_shared_region->allocate(size, ALIGNMENT);
         if (!p) {
@@ -685,12 +685,12 @@ struct shared_heap {
         }
         return p;
     }
-    
+
     // Allocation interface for gc_transience_policy
     static void* allocate(size_t size, immer::norefs_tag) {
         return allocate(size);
     }
-    
+
     // Deallocate - no-op! Bump allocator doesn't support individual deallocation
     static void deallocate(size_t, void*) noexcept {
         // Entire shared memory region is released together
@@ -701,9 +701,9 @@ struct shared_heap {
 
 //==============================================================================
 // SharedValue Type Definition
-// 
+//
 // Value type using shared memory allocator
-// 
+//
 // Design goal: Maximum performance for one-time construction
 // - Heap policy: bump allocator (allocation is just pointer arithmetic)
 // - Reference counting: no-op (no_refcount_policy)
@@ -718,10 +718,10 @@ struct shared_heap {
 // transient() method. Deep copy functions must use regular immutable operations.
 //==============================================================================
 
-namespace immer_lens {
+namespace lager_ext {
 
 // Shared memory policy - maximum performance configuration (no refcount)
-// 
+//
 // Key optimizations:
 // 1. shared_heap: bump allocator, allocation requires only one atomic add
 // 2. no_refcount_policy: completely skip reference counting (max performance!)
@@ -759,7 +759,7 @@ using shared_memory_policy = immer::memory_policy<
 struct SharedValue;
 
 using SharedValueBox    = immer::box<SharedValue, shared_memory_policy>;
-using SharedValueMap    = immer::map<shared_memory::SharedString, 
+using SharedValueMap    = immer::map<shared_memory::SharedString,
                                       SharedValueBox,
                                       shared_memory::SharedStringHash,
                                       shared_memory::SharedStringEqual,
@@ -770,7 +770,7 @@ using SharedValueArray  = immer::array<SharedValueBox, shared_memory_policy>;
 struct SharedTableEntry {
     shared_memory::SharedString id;
     SharedValueBox value;
-    
+
     bool operator==(const SharedTableEntry& other) const {
         return id == other.id && value == other.value;
     }
@@ -799,7 +799,7 @@ struct SharedValue {
     using value_array   = SharedValueArray;
     using value_table   = SharedValueTable;
     using table_entry   = SharedTableEntry;
-    
+
     // Math types (same as Value's math types - fixed-size, trivially copyable)
     using vec2_type     = Vec2;
     using vec3_type     = Vec3;
@@ -807,7 +807,7 @@ struct SharedValue {
     using mat3_type     = Mat3;
     using mat4x3_type   = Mat4x3;
     using mat4_type     = Mat4;
-    
+
     std::variant<int,
                  int64_t,
                  float,
@@ -852,17 +852,17 @@ struct SharedValue {
 
     template <typename T>
     const T* get_if() const { return std::get_if<T>(&data); }
-    
+
     template <typename T>
     bool is() const { return std::holds_alternative<T>(data); }
-    
+
     std::size_t type_index() const noexcept { return data.index(); }
     bool is_null() const noexcept { return std::holds_alternative<std::monostate>(data); }
-    
+
     const ::shared_memory::SharedString* get_string() const {
         return std::get_if<::shared_memory::SharedString>(&data);
     }
-    
+
     std::size_t size() const {
         if (auto* m = get_if<value_map>()) return m->size();
         if (auto* v = get_if<value_vector>()) return v->size();
@@ -882,7 +882,7 @@ inline bool operator!=(const SharedValue& a, const SharedValue& b) {
 //==============================================================================
 // Deep Copy Functions: SharedValue <-> Value
 //
-// ⚠️ PERFORMANCE WARNING:
+// [WARNING] PERFORMANCE WARNING:
 // deep_copy_to_shared() uses O(n log n) construction complexity because
 // SharedValue uses no_transience_policy. This creates many intermediate
 // tree nodes that are NOT reclaimed by the bump allocator, resulting in
@@ -947,7 +947,7 @@ inline SharedValueMap copy_local_map_to_shared(const ValueMap& local_map) {
     SharedValueMap result;
     for (const auto& [key, value_box] : local_map) {
         result = std::move(result).set(
-            shared_memory::SharedString(key), 
+            shared_memory::SharedString(key),
             copy_local_box_to_shared(value_box));
     }
     return result;
@@ -985,7 +985,7 @@ inline SharedValueTable copy_local_table_to_shared(const ValueTable& local_table
 inline Value deep_copy_to_local(const SharedValue& shared) {
     return std::visit([](const auto& data) -> Value {
         using T = std::decay_t<decltype(data)>;
-        
+
         if constexpr (std::is_same_v<T, std::monostate>) {
             return Value{};
         }
@@ -1047,7 +1047,7 @@ inline Value deep_copy_to_local(const SharedValue& shared) {
 inline SharedValue deep_copy_to_shared(const Value& local) {
     return std::visit([](const auto& data) -> SharedValue {
         using T = std::decay_t<decltype(data)>;
-        
+
         if constexpr (std::is_same_v<T, std::monostate>) {
             return SharedValue{};
         }
@@ -1108,7 +1108,7 @@ inline SharedValue deep_copy_to_shared(const Value& local) {
 
 //==============================================================================
 // SharedValueHandle - Handle for shared Value
-// 
+//
 // Encapsulates shared memory region and the SharedValue stored in it.
 // Provides convenient creation and access interface.
 //
@@ -1124,32 +1124,32 @@ class SharedValueHandle {
 public:
     SharedValueHandle() = default;
     ~SharedValueHandle() = default;
-    
+
     // Non-copyable
     SharedValueHandle(const SharedValueHandle&) = delete;
     SharedValueHandle& operator=(const SharedValueHandle&) = delete;
-    
+
     // Movable
     SharedValueHandle(SharedValueHandle&&) = default;
     SharedValueHandle& operator=(SharedValueHandle&&) = default;
-    
+
     /// @brief Create shared memory and write Value (called by process B)
-    /// 
+    ///
     /// @param name Shared memory region name (unique identifier)
     /// @param value The Value to copy to shared memory
     /// @param max_size Maximum size of shared memory region (default 100MB)
     /// @return true on success, false on failure
-    /// 
+    ///
     /// On failure, the region is cleaned up automatically.
     /// Use last_error() to get the last error message (if any).
     bool create(const char* name, const Value& value, size_t max_size = 100 * 1024 * 1024) {
         last_error_.clear();
-        
+
         if (!region_.create(name, max_size)) {
             last_error_ = "Failed to create shared memory region";
             return false;
         }
-        
+
         // RAII guard for cleanup on exception
         struct RegionGuard {
             shared_memory::SharedMemoryRegion& region;
@@ -1159,25 +1159,25 @@ public:
                 if (!success) region.close();
             }
         } guard{region_};
-        
+
         shared_memory::set_current_shared_region(&region_);
-        
+
         try {
             void* value_storage = region_.allocate(sizeof(SharedValue), alignof(SharedValue));
             if (!value_storage) {
                 last_error_ = "Failed to allocate storage for SharedValue";
                 return false;
             }
-            
+
             auto* header = region_.header();
             size_t offset = static_cast<char*>(value_storage) - static_cast<char*>(region_.base());
             header->value_offset = offset;
-            
+
             new (value_storage) SharedValue(deep_copy_to_shared(value));
-            
+
             // Sync local cursor to shared header (required for single-threaded allocator)
             region_.sync_allocation_cursor();
-            
+
             guard.success = true;
             return true;
         }
@@ -1190,12 +1190,12 @@ public:
             return false;
         }
     }
-    
+
     // Open shared memory (called by process A)
     bool open(const char* name) {
         return region_.open(name);
     }
-    
+
     // Get shared Value (true zero-copy read-only access!)
     // Note: Must be called after successful open()
     const SharedValue* shared_value() const noexcept {
@@ -1210,7 +1210,7 @@ public:
         return reinterpret_cast<const SharedValue*>(
             static_cast<char*>(region_.base()) + offset);
     }
-    
+
     // Deep copy to local Value
     Value copy_to_local() const {
         const SharedValue* sv = shared_value();
@@ -1219,25 +1219,25 @@ public:
         }
         return deep_copy_to_local(*sv);
     }
-    
+
     bool is_valid() const noexcept { return region_.is_valid(); }
-    
+
     // Check if Value has been initialized
     bool is_value_ready() const noexcept {
         if (!region_.is_valid()) return false;
         return region_.header()->value_offset != 0;
     }
-    
+
     shared_memory::SharedMemoryRegion& region() noexcept { return region_; }
     const shared_memory::SharedMemoryRegion& region() const noexcept { return region_; }
-    
+
     /// @brief Get the last error message (if any)
     /// @return Last error message, or empty string if no error
     const std::string& last_error() const noexcept { return last_error_; }
-    
+
 private:
     shared_memory::SharedMemoryRegion region_;
     std::string last_error_;
 };
 
-} // namespace immer_lens
+} // namespace lager_ext

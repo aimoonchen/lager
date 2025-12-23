@@ -16,15 +16,15 @@
 #include "value.h"
 #include <lager/lenses.hpp>
 
-namespace immer_lens {
+namespace lager_ext {
 
 // ============================================================
 // Demo function for lager::lenses::at with Value
-// 
+//
 // Note: No additional functions are needed here!
 // Value already implements the container interface (at, set, count, size)
 // so lager::lenses::at works out of the box.
 // ============================================================
 void demo_at_lens();
 
-} // namespace immer_lens
+} // namespace lager_ext

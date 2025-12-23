@@ -17,7 +17,7 @@
 #include <sstream>    // for std::ostringstream
 #include <iomanip>    // for std::setprecision
 
-namespace immer_lens {
+namespace lager_ext {
 
 // ============================================================
 // Helper: format float array as string
@@ -102,22 +102,22 @@ void print_value(const Value& val, const std::string& prefix, std::size_t depth)
                                  std::is_same_v<T, double>) {
                 std::cout << std::string(depth * 2, ' ') << prefix << arg << "\n";
             } else if constexpr (std::is_same_v<T, Vec2>) {
-                std::cout << std::string(depth * 2, ' ') << prefix 
+                std::cout << std::string(depth * 2, ' ') << prefix
                           << format_float_array(arg, "vec2") << "\n";
             } else if constexpr (std::is_same_v<T, Vec3>) {
-                std::cout << std::string(depth * 2, ' ') << prefix 
+                std::cout << std::string(depth * 2, ' ') << prefix
                           << format_float_array(arg, "vec3") << "\n";
             } else if constexpr (std::is_same_v<T, Vec4>) {
-                std::cout << std::string(depth * 2, ' ') << prefix 
+                std::cout << std::string(depth * 2, ' ') << prefix
                           << format_float_array(arg, "vec4") << "\n";
             } else if constexpr (std::is_same_v<T, Mat3>) {
-                std::cout << std::string(depth * 2, ' ') << prefix 
+                std::cout << std::string(depth * 2, ' ') << prefix
                           << format_float_array(arg, "mat3") << "\n";
             } else if constexpr (std::is_same_v<T, Mat4x3>) {
-                std::cout << std::string(depth * 2, ' ') << prefix 
+                std::cout << std::string(depth * 2, ' ') << prefix
                           << format_float_array(arg, "mat4x3") << "\n";
             } else if constexpr (std::is_same_v<T, Mat4>) {
-                std::cout << std::string(depth * 2, ' ') << prefix 
+                std::cout << std::string(depth * 2, ' ') << prefix
                           << format_float_array(arg, "mat4") << "\n";
             } else if constexpr (std::is_same_v<T, ValueMap>) {
                 for (const auto& [k, v] : arg) {
@@ -176,25 +176,25 @@ Value create_sample_data()
         .set("name", Value{std::string{"Alice"}})
         .set("age", Value{25})
         .finish();
-    
+
     // Create user 2 using Builder API
     Value user2 = MapBuilder()
         .set("name", Value{std::string{"Bob"}})
         .set("age", Value{30})
         .finish();
-    
+
     // Create users array using Builder API
     Value users = VectorBuilder()
         .push_back(user1)
         .push_back(user2)
         .finish();
-    
+
     // Create config using Builder API
     Value config = MapBuilder()
         .set("version", Value{1})
         .set("theme", Value{std::string{"dark"}})
         .finish();
-    
+
     // Create root using Builder API
     return MapBuilder()
         .set("users", users)
@@ -234,11 +234,11 @@ enum class TypeTag : uint8_t {
 class ByteWriter {
 public:
     ByteBuffer buffer;
-    
+
     void write_u8(uint8_t v) {
         buffer.push_back(v);
     }
-    
+
     void write_u32(uint32_t v) {
         // Little-endian
         buffer.push_back(static_cast<uint8_t>(v & 0xFF));
@@ -246,17 +246,17 @@ public:
         buffer.push_back(static_cast<uint8_t>((v >> 16) & 0xFF));
         buffer.push_back(static_cast<uint8_t>((v >> 24) & 0xFF));
     }
-    
+
     void write_i32(int32_t v) {
         write_u32(static_cast<uint32_t>(v));
     }
-    
+
     void write_f32(float v) {
         uint32_t bits;
         std::memcpy(&bits, &v, sizeof(bits));
         write_u32(bits);
     }
-    
+
     void write_f64(double v) {
         uint64_t bits;
         std::memcpy(&bits, &v, sizeof(bits));
@@ -265,21 +265,21 @@ public:
             buffer.push_back(static_cast<uint8_t>((bits >> (i * 8)) & 0xFF));
         }
     }
-    
+
     void write_i64(int64_t v) {
         uint64_t bits = static_cast<uint64_t>(v);
         for (int i = 0; i < 8; ++i) {
             buffer.push_back(static_cast<uint8_t>((bits >> (i * 8)) & 0xFF));
         }
     }
-    
+
     void write_string(const std::string& s) {
         write_u32(static_cast<uint32_t>(s.size()));
         for (char c : s) {
             buffer.push_back(static_cast<uint8_t>(c));
         }
     }
-    
+
     template<std::size_t N>
     void write_float_array(const std::array<float, N>& arr) {
         for (std::size_t i = 0; i < N; ++i) {
@@ -294,18 +294,18 @@ public:
     const uint8_t* data;
     std::size_t size;
     std::size_t pos = 0;
-    
+
     ByteReader(const uint8_t* d, std::size_t s) : data(d), size(s) {}
-    
+
     bool has_bytes(std::size_t n) const {
         return pos + n <= size;
     }
-    
+
     uint8_t read_u8() {
         if (!has_bytes(1)) throw std::runtime_error("Unexpected end of buffer");
         return data[pos++];
     }
-    
+
     uint32_t read_u32() {
         if (!has_bytes(4)) throw std::runtime_error("Unexpected end of buffer");
         uint32_t v = 0;
@@ -315,18 +315,18 @@ public:
         v |= static_cast<uint32_t>(data[pos++]) << 24;
         return v;
     }
-    
+
     int32_t read_i32() {
         return static_cast<int32_t>(read_u32());
     }
-    
+
     float read_f32() {
         uint32_t bits = read_u32();
         float v;
         std::memcpy(&v, &bits, sizeof(v));
         return v;
     }
-    
+
     double read_f64() {
         if (!has_bytes(8)) throw std::runtime_error("Unexpected end of buffer");
         uint64_t bits = 0;
@@ -337,7 +337,7 @@ public:
         std::memcpy(&v, &bits, sizeof(v));
         return v;
     }
-    
+
     int64_t read_i64() {
         if (!has_bytes(8)) throw std::runtime_error("Unexpected end of buffer");
         uint64_t bits = 0;
@@ -346,7 +346,7 @@ public:
         }
         return static_cast<int64_t>(bits);
     }
-    
+
     std::string read_string() {
         uint32_t len = read_u32();
         if (!has_bytes(len)) throw std::runtime_error("Unexpected end of buffer");
@@ -354,7 +354,7 @@ public:
         pos += len;
         return s;
     }
-    
+
     template<std::size_t N>
     std::array<float, N> read_float_array() {
         std::array<float, N> arr;
@@ -372,7 +372,7 @@ Value deserialize_value(ByteReader& r);
 void serialize_value(ByteWriter& w, const Value& val) {
     std::visit([&w](const auto& arg) {
         using T = std::decay_t<decltype(arg)>;
-        
+
         if constexpr (std::is_same_v<T, std::monostate>) {
             w.write_u8(static_cast<uint8_t>(TypeTag::Null));
         } else if constexpr (std::is_same_v<T, int>) {
@@ -443,29 +443,29 @@ void serialize_value(ByteWriter& w, const Value& val) {
 
 Value deserialize_value(ByteReader& r) {
     TypeTag tag = static_cast<TypeTag>(r.read_u8());
-    
+
     switch (tag) {
         case TypeTag::Null:
             return Value{};
-            
+
         case TypeTag::Int:
             return Value{r.read_i32()};
-            
+
         case TypeTag::Int64:
             return Value{r.read_i64()};
-            
+
         case TypeTag::Float:
             return Value{r.read_f32()};
-            
+
         case TypeTag::Double:
             return Value{r.read_f64()};
-            
+
         case TypeTag::Bool:
             return Value{r.read_u8() != 0};
-            
+
         case TypeTag::String:
             return Value{r.read_string()};
-            
+
         case TypeTag::Map: {
             uint32_t count = r.read_u32();
             auto transient = ValueMap{}.transient();
@@ -476,7 +476,7 @@ Value deserialize_value(ByteReader& r) {
             }
             return Value{transient.persistent()};
         }
-        
+
         case TypeTag::Vector: {
             uint32_t count = r.read_u32();
             auto transient = ValueVector{}.transient();
@@ -486,7 +486,7 @@ Value deserialize_value(ByteReader& r) {
             }
             return Value{transient.persistent()};
         }
-        
+
         case TypeTag::Array: {
             // Deserialize as immer::array to preserve type information
             // Build array by pushing back elements one by one
@@ -498,7 +498,7 @@ Value deserialize_value(ByteReader& r) {
             }
             return Value{arr};
         }
-        
+
         case TypeTag::Table: {
             uint32_t count = r.read_u32();
             auto transient = ValueTable{}.transient();
@@ -509,25 +509,25 @@ Value deserialize_value(ByteReader& r) {
             }
             return Value{transient.persistent()};
         }
-        
+
         case TypeTag::Vec2:
             return Value{r.read_float_array<2>()};
-            
+
         case TypeTag::Vec3:
             return Value{r.read_float_array<3>()};
-            
+
         case TypeTag::Vec4:
             return Value{r.read_float_array<4>()};
-            
+
         case TypeTag::Mat3:
             return Value{r.read_float_array<9>()};
-            
+
         case TypeTag::Mat4x3:
             return Value{r.read_float_array<12>()};
-            
+
         case TypeTag::Mat4:
             return Value{r.read_float_array<16>()};
-        
+
         default:
             throw std::runtime_error("Unknown type tag: " + std::to_string(static_cast<int>(tag)));
     }
@@ -535,10 +535,10 @@ Value deserialize_value(ByteReader& r) {
 
 std::size_t calc_serialized_size(const Value& val) {
     std::size_t size = 1; // type tag
-    
+
     std::visit([&size](const auto& arg) {
         using T = std::decay_t<decltype(arg)>;
-        
+
         if constexpr (std::is_same_v<T, std::monostate>) {
             // no extra data
         } else if constexpr (std::is_same_v<T, int>) {
@@ -589,7 +589,7 @@ std::size_t calc_serialized_size(const Value& val) {
             size += 16 * sizeof(float); // 16 floats
         }
     }, val.data);
-    
+
     return size;
 }
 
@@ -625,14 +625,14 @@ public:
     uint8_t* buffer;
     std::size_t capacity;
     std::size_t pos = 0;
-    
+
     DirectByteWriter(uint8_t* buf, std::size_t cap) : buffer(buf), capacity(cap) {}
-    
+
     void write_u8(uint8_t v) {
         if (pos >= capacity) throw std::runtime_error("Buffer overflow");
         buffer[pos++] = v;
     }
-    
+
     void write_u32(uint32_t v) {
         if (pos + 4 > capacity) throw std::runtime_error("Buffer overflow");
         buffer[pos++] = static_cast<uint8_t>(v & 0xFF);
@@ -640,17 +640,17 @@ public:
         buffer[pos++] = static_cast<uint8_t>((v >> 16) & 0xFF);
         buffer[pos++] = static_cast<uint8_t>((v >> 24) & 0xFF);
     }
-    
+
     void write_i32(int32_t v) {
         write_u32(static_cast<uint32_t>(v));
     }
-    
+
     void write_f32(float v) {
         uint32_t bits;
         std::memcpy(&bits, &v, sizeof(bits));
         write_u32(bits);
     }
-    
+
     void write_f64(double v) {
         if (pos + 8 > capacity) throw std::runtime_error("Buffer overflow");
         uint64_t bits;
@@ -659,7 +659,7 @@ public:
             buffer[pos++] = static_cast<uint8_t>((bits >> (i * 8)) & 0xFF);
         }
     }
-    
+
     void write_i64(int64_t v) {
         if (pos + 8 > capacity) throw std::runtime_error("Buffer overflow");
         uint64_t bits = static_cast<uint64_t>(v);
@@ -667,14 +667,14 @@ public:
             buffer[pos++] = static_cast<uint8_t>((bits >> (i * 8)) & 0xFF);
         }
     }
-    
+
     void write_string(const std::string& s) {
         write_u32(static_cast<uint32_t>(s.size()));
         if (pos + s.size() > capacity) throw std::runtime_error("Buffer overflow");
         std::memcpy(buffer + pos, s.data(), s.size());
         pos += s.size();
     }
-    
+
     template<std::size_t N>
     void write_float_array(const std::array<float, N>& arr) {
         for (std::size_t i = 0; i < N; ++i) {
@@ -688,7 +688,7 @@ void serialize_value_direct(DirectByteWriter& w, const Value& val);
 void serialize_value_direct(DirectByteWriter& w, const Value& val) {
     std::visit([&w](const auto& arg) {
         using T = std::decay_t<decltype(arg)>;
-        
+
         if constexpr (std::is_same_v<T, std::monostate>) {
             w.write_u8(static_cast<uint8_t>(TypeTag::Null));
         } else if constexpr (std::is_same_v<T, int>) {
@@ -761,7 +761,7 @@ void serialize_value_direct(DirectByteWriter& w, const Value& val) {
 std::size_t serialize_to(const Value& val, uint8_t* buffer, std::size_t buffer_size) {
     std::size_t required = calc_serialized_size(val);
     if (required > buffer_size) {
-        throw std::runtime_error("Buffer too small: need " + std::to_string(required) + 
+        throw std::runtime_error("Buffer too small: need " + std::to_string(required) +
                                  " bytes, got " + std::to_string(buffer_size));
     }
     DirectByteWriter w(buffer, buffer_size);
@@ -790,7 +790,7 @@ std::string json_escape_string(const std::string& s) {
             default:
                 if (static_cast<unsigned char>(c) < 0x20) {
                     // Control characters as \uXXXX
-                    oss << "\\u" << std::hex << std::setfill('0') << std::setw(4) 
+                    oss << "\\u" << std::hex << std::setfill('0') << std::setw(4)
                         << static_cast<int>(static_cast<unsigned char>(c));
                 } else {
                     oss << c;
@@ -819,10 +819,10 @@ void to_json_impl(const Value& val, std::ostringstream& oss, bool compact, int i
     const std::string child_indent = compact ? "" : std::string((indent_level + 1) * 2, ' ');
     const std::string newline = compact ? "" : "\n";
     const std::string space_after_colon = compact ? "" : " ";
-    
+
     std::visit([&](const auto& arg) {
         using T = std::decay_t<decltype(arg)>;
-        
+
         if constexpr (std::is_same_v<T, std::monostate>) {
             oss << "null";
         } else if constexpr (std::is_same_v<T, bool>) {
@@ -914,7 +914,7 @@ void to_json_impl(const Value& val, std::ostringstream& oss, bool compact, int i
 class JsonParser {
 public:
     JsonParser(const std::string& json) : json_(json), pos_(0) {}
-    
+
     Value parse(std::string* error_out) {
         try {
             skip_whitespace();
@@ -928,64 +928,64 @@ public:
             return Value{};
         }
     }
-    
+
 private:
     const std::string& json_;
     std::size_t pos_;
-    
+
     char peek() const {
         return pos_ < json_.size() ? json_[pos_] : '\0';
     }
-    
+
     char consume() {
         return pos_ < json_.size() ? json_[pos_++] : '\0';
     }
-    
+
     void skip_whitespace() {
         while (pos_ < json_.size() && std::isspace(static_cast<unsigned char>(json_[pos_]))) {
             ++pos_;
         }
     }
-    
+
     void expect(char c) {
         skip_whitespace();
         if (consume() != c) {
             throw std::runtime_error(std::string("Expected '") + c + "' at position " + std::to_string(pos_));
         }
     }
-    
+
     Value parse_value() {
         skip_whitespace();
         char c = peek();
-        
+
         if (c == '{') return parse_object();
         if (c == '[') return parse_array();
         if (c == '"') return parse_string();
         if (c == 't' || c == 'f') return parse_bool();
         if (c == 'n') return parse_null();
         if (c == '-' || std::isdigit(static_cast<unsigned char>(c))) return parse_number();
-        
+
         throw std::runtime_error("Unexpected character '" + std::string(1, c) + "' at position " + std::to_string(pos_));
     }
-    
+
     Value parse_object() {
         expect('{');
         skip_whitespace();
-        
+
         if (peek() == '}') {
             consume();
             return Value{ValueMap{}};
         }
-        
+
         auto transient = ValueMap{}.transient();
-        
+
         while (true) {
             skip_whitespace();
             std::string key = parse_string_raw();
             expect(':');
             Value val = parse_value();
             transient.set(std::move(key), ValueBox{std::move(val)});
-            
+
             skip_whitespace();
             char c = peek();
             if (c == '}') {
@@ -997,25 +997,25 @@ private:
             }
             consume();
         }
-        
+
         return Value{transient.persistent()};
     }
-    
+
     Value parse_array() {
         expect('[');
         skip_whitespace();
-        
+
         if (peek() == ']') {
             consume();
             return Value{ValueVector{}};
         }
-        
+
         auto transient = ValueVector{}.transient();
-        
+
         while (true) {
             Value val = parse_value();
             transient.push_back(ValueBox{std::move(val)});
-            
+
             skip_whitespace();
             char c = peek();
             if (c == ']') {
@@ -1027,14 +1027,14 @@ private:
             }
             consume();
         }
-        
+
         return Value{transient.persistent()};
     }
-    
+
     std::string parse_string_raw() {
         expect('"');
         std::string result;
-        
+
         while (pos_ < json_.size()) {
             char c = consume();
             if (c == '"') {
@@ -1081,21 +1081,21 @@ private:
                 result += c;
             }
         }
-        
+
         throw std::runtime_error("Unterminated string");
     }
-    
+
     Value parse_string() {
         return Value{parse_string_raw()};
     }
-    
+
     Value parse_number() {
         std::size_t start = pos_;
         bool has_decimal = false;
         bool has_exponent = false;
-        
+
         if (peek() == '-') consume();
-        
+
         while (pos_ < json_.size()) {
             char c = peek();
             if (std::isdigit(static_cast<unsigned char>(c))) {
@@ -1111,9 +1111,9 @@ private:
                 break;
             }
         }
-        
+
         std::string num_str = json_.substr(start, pos_ - start);
-        
+
         if (has_decimal || has_exponent) {
             return Value{std::stod(num_str)};
         } else {
@@ -1129,7 +1129,7 @@ private:
             }
         }
     }
-    
+
     Value parse_bool() {
         if (json_.compare(pos_, 4, "true") == 0) {
             pos_ += 4;
@@ -1141,7 +1141,7 @@ private:
         }
         throw std::runtime_error("Expected 'true' or 'false' at position " + std::to_string(pos_));
     }
-    
+
     Value parse_null() {
         if (json_.compare(pos_, 4, "null") == 0) {
             pos_ += 4;
@@ -1164,7 +1164,7 @@ Value from_json(const std::string& json_str, std::string* error_out) {
     return parser.parse(error_out);
 }
 
-// Note: path_to_json_pointer() and json_pointer_to_path() are implemented 
+// Note: path_to_json_pointer() and json_pointer_to_path() are implemented
 // in json_pointer.cpp to avoid duplicate definitions.
 
-} // namespace immer_lens
+} // namespace lager_ext

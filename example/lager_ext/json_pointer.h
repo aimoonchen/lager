@@ -22,7 +22,7 @@
 #include "lager_lens.h"
 #include <string_view>
 
-namespace immer_lens {
+namespace lager_ext {
 
 // ============================================================
 // JSON Pointer parsing and conversion
@@ -73,4 +73,4 @@ template<typename Fn>
 // ============================================================
 void demo_json_pointer();
 
-} // namespace immer_lens
+} // namespace lager_ext

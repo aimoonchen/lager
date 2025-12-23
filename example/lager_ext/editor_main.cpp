@@ -62,7 +62,7 @@
 #include <memory>
 #include <map>
 
-using namespace immer_lens;
+using namespace lager_ext;
 
 // ============================================================
 // Helper: Convert Value to QVariant
@@ -128,7 +128,7 @@ Value qvariantToValue(const QVariant& var) {
             ValueMap map;
             const auto qmap = var.toMap();
             for (auto it = qmap.begin(); it != qmap.end(); ++it) {
-                map = map.set(it.key().toStdString(), 
+                map = map.set(it.key().toStdString(),
                               immer::box<Value>(qvariantToValue(it.value())));
             }
             return Value{map};
@@ -153,7 +153,7 @@ public:
     {
         auto* layout = new QHBoxLayout(this);
         layout->setContentsMargins(0, 0, 0, 0);
-        
+
         createWidget(layout);
     }
 
@@ -190,7 +190,7 @@ private:
                                    static_cast<int>(meta_.range->max_value));
                     spin->setSingleStep(static_cast<int>(meta_.range->step));
                 }
-                connect(spin, QOverload<int>::of(&QSpinBox::valueChanged), 
+                connect(spin, QOverload<int>::of(&QSpinBox::valueChanged),
                         this, [this](int val) {
                     emit valueChanged(Value{static_cast<int64_t>(val)});
                 });
@@ -225,22 +225,22 @@ private:
                 auto* container = new QWidget(this);
                 auto* hbox = new QHBoxLayout(container);
                 hbox->setContentsMargins(0, 0, 0, 0);
-                
+
                 auto* slider = new QSlider(Qt::Horizontal, this);
                 auto* label = new QLabel(this);
                 label->setMinimumWidth(50);
-                
+
                 if (meta_.range) {
                     slider->setRange(static_cast<int>(meta_.range->min_value),
                                      static_cast<int>(meta_.range->max_value));
                 }
                 slider->setEnabled(!meta_.read_only);
-                
+
                 connect(slider, &QSlider::valueChanged, this, [this, label](int val) {
                     label->setText(QString::number(val));
                     emit valueChanged(Value{static_cast<int64_t>(val)});
                 });
-                
+
                 hbox->addWidget(slider, 1);
                 hbox->addWidget(label);
                 widget_ = container;
@@ -268,7 +268,7 @@ private:
                 auto* hbox = new QHBoxLayout(container);
                 hbox->setContentsMargins(0, 0, 0, 0);
                 hbox->setSpacing(4);
-                
+
                 auto createSpinBox = [this, hbox](const QString& label) {
                     hbox->addWidget(new QLabel(label, this));
                     auto* spin = new QDoubleSpinBox(this);
@@ -278,11 +278,11 @@ private:
                     hbox->addWidget(spin, 1);
                     return spin;
                 };
-                
+
                 xSpin_ = createSpinBox("X:");
                 ySpin_ = createSpinBox("Y:");
                 zSpin_ = createSpinBox("Z:");
-                
+
                 auto emitVector = [this]() {
                     ValueMap map;
                     map = map.set("x", immer::box<Value>(Value{xSpin_->value()}));
@@ -290,14 +290,14 @@ private:
                     map = map.set("z", immer::box<Value>(Value{zSpin_->value()}));
                     emit valueChanged(Value{map});
                 };
-                
+
                 connect(xSpin_, QOverload<double>::of(&QDoubleSpinBox::valueChanged),
                         this, emitVector);
                 connect(ySpin_, QOverload<double>::of(&QDoubleSpinBox::valueChanged),
                         this, emitVector);
                 connect(zSpin_, QOverload<double>::of(&QDoubleSpinBox::valueChanged),
                         this, emitVector);
-                
+
                 widget_ = container;
                 break;
             }
@@ -309,7 +309,7 @@ private:
                 break;
             }
         }
-        
+
         layout->addWidget(widget_);
     }
 
@@ -470,50 +470,50 @@ public:
         : QScrollArea(parent)
     {
         setWidgetResizable(true);
-        
+
         auto* container = new QWidget(this);
         layout_ = new QVBoxLayout(container);
         layout_->setAlignment(Qt::AlignTop);
-        
+
         headerLabel_ = new QLabel("No Object Selected", this);
         headerLabel_->setStyleSheet("font-weight: bold; font-size: 14px; padding: 8px;");
         layout_->addWidget(headerLabel_);
-        
+
         formContainer_ = new QWidget(this);
         formLayout_ = new QFormLayout(formContainer_);
         layout_->addWidget(formContainer_);
-        
+
         layout_->addStretch();
-        
+
         setWidget(container);
     }
 
     void setObject(const SceneObject* obj,
                    std::function<void(const std::string&, Value)> setter) {
         clearProperties();
-        
+
         if (!obj) {
             headerLabel_->setText("No Object Selected");
             return;
         }
-        
+
         headerLabel_->setText(QString::fromStdString(obj->type + ": " + obj->id));
-        
+
         std::map<std::string, std::vector<const PropertyMeta*>> categories;
         for (const auto& meta : obj->meta.properties) {
             categories[meta.category].push_back(&meta);
         }
-        
+
         for (const auto& [category, props] : categories) {
             if (!category.empty()) {
                 auto* groupBox = new QGroupBox(QString::fromStdString(category), formContainer_);
                 auto* groupLayout = new QFormLayout(groupBox);
-                
+
                 for (const auto* meta : props) {
                     auto* widget = createPropertyWidget(*meta, *obj, setter);
                     groupLayout->addRow(QString::fromStdString(meta->display_name), widget);
                 }
-                
+
                 formLayout_->addRow(groupBox);
             } else {
                 for (const auto* meta : props) {
@@ -542,26 +542,26 @@ private:
                                          const SceneObject& obj,
                                          std::function<void(const std::string&, Value)> setter) {
         auto* widget = new PropertyWidget(meta, this);
-        
+
         if (auto* map = obj.data.get_if<ValueMap>()) {
             if (auto it = map->find(meta.name); it) {
                 widget->setValue(**it);
             }
         }
-        
+
         connect(widget, &PropertyWidget::valueChanged,
                 this, [this, name = meta.name, setter](const Value& val) {
             setter(name, val);
             emit propertyChanged(QString::fromStdString(name), val);
         });
-        
+
         propertyWidgets_[meta.name] = widget;
         return widget;
     }
 
     void clearProperties() {
         propertyWidgets_.clear();
-        
+
         while (formLayout_->count() > 0) {
             auto* item = formLayout_->takeAt(0);
             if (item->widget()) {
@@ -595,7 +595,7 @@ public:
         setAlternatingRowColors(true);
         header()->setSectionResizeMode(0, QHeaderView::Stretch);
         header()->setSectionResizeMode(1, QHeaderView::ResizeToContents);
-        
+
         connect(this, &QTreeWidget::currentItemChanged,
                 this, &ObjectTreeWidget::onSelectionChanged);
     }
@@ -603,10 +603,10 @@ public:
     void setScene(const SceneState& scene) {
         clear();
         itemMap_.clear();
-        
+
         for (const auto& [id, obj] : scene.objects) {
             auto* item = new QTreeWidgetItem();
-            
+
             QString name = QString::fromStdString(id);
             if (auto* map = obj.data.get_if<ValueMap>()) {
                 if (auto it = map->find("name"); it) {
@@ -615,21 +615,21 @@ public:
                     }
                 }
             }
-            
+
             item->setText(0, name);
             item->setText(1, QString::fromStdString(obj.type));
             item->setData(0, Qt::UserRole, QString::fromStdString(id));
-            
+
             QStyle::StandardPixmap icon = QStyle::SP_FileIcon;
             if (obj.type == "Transform") icon = QStyle::SP_DirIcon;
             else if (obj.type == "Light") icon = QStyle::SP_DialogYesButton;
             else if (obj.type == "Camera") icon = QStyle::SP_ComputerIcon;
             item->setIcon(0, style()->standardIcon(icon));
-            
+
             addTopLevelItem(item);
             itemMap_[id] = item;
         }
-        
+
         if (!scene.selected_id.empty()) {
             if (auto it = itemMap_.find(scene.selected_id); it != itemMap_.end()) {
                 setCurrentItem(it->second);
@@ -678,16 +678,16 @@ public:
     {
         setWindowTitle("Lager Editor - Scene Editor");
         resize(1200, 800);
-        
+
         setupUI();
         setupActions();
         setupConnections();
-        
+
         // Initialize engine and sync state
         engine_.initialize_sample_scene();
         auto initialState = engine_.get_initial_state();
         store_.dispatch(actions::SyncFromEngine{payloads::SyncFromEngine{initialState}});
-        
+
         // Force initial UI update
         updateUI(store_.get());
     }
@@ -696,33 +696,33 @@ private:
     void setupUI() {
         auto* splitter = new QSplitter(Qt::Horizontal, this);
         setCentralWidget(splitter);
-        
+
         objectTree_ = new ObjectTreeWidget(this);
         splitter->addWidget(objectTree_);
-        
+
         propertyPanel_ = new PropertyPanel(this);
         splitter->addWidget(propertyPanel_);
-        
+
         splitter->setSizes({300, 700});
-        
+
         auto* toolbar = addToolBar("Main Toolbar");
         toolbar->setMovable(false);
-        
+
         undoAction_ = toolbar->addAction(style()->standardIcon(QStyle::SP_ArrowBack), "Undo");
         undoAction_->setShortcut(QKeySequence::Undo);
-        
+
         redoAction_ = toolbar->addAction(style()->standardIcon(QStyle::SP_ArrowForward), "Redo");
         redoAction_->setShortcut(QKeySequence::Redo);
-        
+
         toolbar->addSeparator();
-        
+
         syncAction_ = toolbar->addAction(style()->standardIcon(QStyle::SP_BrowserReload), "Sync to Engine");
-        
+
         toolbar->addSeparator();
-        
+
         historyLabel_ = new QLabel("History: 0 undo / 0 redo", this);
         toolbar->addWidget(historyLabel_);
-        
+
         statusBar()->showMessage("Ready");
     }
 
@@ -730,14 +730,14 @@ private:
         connect(undoAction_, &QAction::triggered, this, [this]() {
             store_.dispatch(actions::Undo{});
         });
-        
+
         connect(redoAction_, &QAction::triggered, this, [this]() {
             store_.dispatch(actions::Redo{});
         });
-        
+
         connect(syncAction_, &QAction::triggered, this, [this]() {
             const auto& model = store_.get();
-            std::cout << "[Editor] Syncing to engine, version: " 
+            std::cout << "[Editor] Syncing to engine, version: "
                       << model.scene.version << std::endl;
             statusBar()->showMessage("Synced to engine", 3000);
         });
@@ -748,7 +748,7 @@ private:
                 this, [this](const QString& objectId) {
             store_.dispatch(actions::SelectObject{payloads::SelectObject{objectId.toStdString()}});
         });
-        
+
         store_.watch([this](const EditorModel& model) {
             updateUI(model);
         });
@@ -758,31 +758,31 @@ private:
         // Check if scene objects changed (compare version or object count)
         bool sceneChanged = (lastSceneVersion_ != model.scene.version) ||
                            (lastObjectCount_ != model.scene.objects.size());
-        
+
         // Check if selection changed
         bool selectionChanged = (lastSelectedId_ != model.scene.selected_id);
-        
+
         // Only rebuild tree if scene structure actually changed
         if (sceneChanged) {
             // Save current selection before rebuilding
             std::string savedSelection = model.scene.selected_id;
-            
+
             objectTree_->blockSignals(true);
             objectTree_->setScene(model.scene);
             objectTree_->blockSignals(false);
-            
+
             lastSceneVersion_ = model.scene.version;
             lastObjectCount_ = model.scene.objects.size();
         }
-        
+
         // Update property panel based on selection
         if (selectionChanged) {
             lastSelectedId_ = model.scene.selected_id;
-            
+
             if (!model.scene.selected_id.empty()) {
                 const SceneObject* obj_ptr = model.scene.objects.find(model.scene.selected_id);
                 if (obj_ptr != nullptr) {
-                    propertyPanel_->setObject(obj_ptr, 
+                    propertyPanel_->setObject(obj_ptr,
                         [this](const std::string& path, Value val) {
                             store_.dispatch(actions::SetProperty{payloads::SetProperty{path, std::move(val)}});
                         });
@@ -799,14 +799,14 @@ private:
                 propertyPanel_->updateValues(*obj_ptr);
             }
         }
-        
+
         undoAction_->setEnabled(!model.undo_stack.empty());
         redoAction_->setEnabled(!model.redo_stack.empty());
-        
+
         historyLabel_->setText(QString("History: %1 undo / %2 redo")
             .arg(model.undo_stack.size())
             .arg(model.redo_stack.size()));
-        
+
         if (model.dirty) {
             statusBar()->showMessage(QString("State changed, version: %1")
                 .arg(model.scene.version), 2000);
@@ -815,15 +815,15 @@ private:
 
     lager::store<EditorAction, EditorModel> store_;
     EngineSimulator engine_;
-    
+
     ObjectTreeWidget* objectTree_;
     PropertyPanel* propertyPanel_;
-    
+
     QAction* undoAction_;
     QAction* redoAction_;
     QAction* syncAction_;
     QLabel* historyLabel_;
-    
+
     // State tracking for incremental updates
     std::string lastSelectedId_;
     std::size_t lastSceneVersion_ = 0;
@@ -839,9 +839,9 @@ private:
 int main(int argc, char** argv)
 {
     QApplication app(argc, argv);
-    
+
     app.setStyle("Fusion");
-    
+
     // Dark theme palette
     QPalette darkPalette;
     darkPalette.setColor(QPalette::Window, QColor(53, 53, 53));
@@ -858,29 +858,29 @@ int main(int argc, char** argv)
     darkPalette.setColor(QPalette::Highlight, QColor(42, 130, 218));
     darkPalette.setColor(QPalette::HighlightedText, Qt::black);
     app.setPalette(darkPalette);
-    
+
 #if USE_QML_UI
     std::cout << "[Editor] Starting with QML UI..." << std::endl;
-    
+
     QQmlApplicationEngine engine;
     QQuickStyle::setStyle("Material");
-    
+
     // TODO: Create QML version of EditorApp class
-    
+
     engine.load(QUrl::fromLocalFile(
         QString(LAGER_PATHLENS_QML_DIR) + "/main.qml"));
-    
+
     if (engine.rootObjects().isEmpty()) {
         std::cerr << "[Editor] Failed to load QML!" << std::endl;
         return -1;
     }
 #else
     std::cout << "[Editor] Starting with Qt Widgets UI..." << std::endl;
-    
+
     EditorMainWindow window;
     window.show();
 #endif
-    
+
     return app.exec();
 }
 

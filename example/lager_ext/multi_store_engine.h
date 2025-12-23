@@ -27,7 +27,7 @@
 #include <vector>
 #include <iostream>
 
-namespace immer_lens {
+namespace lager_ext {
 namespace multi_store {
 
 // ============================================================
@@ -40,10 +40,10 @@ struct ObjectState {
     std::string type;
     Value data;           // Object properties as Value map
     std::size_t version = 0;
-    
+
     bool operator==(const ObjectState& other) const {
-        return id == other.id && 
-               type == other.type && 
+        return id == other.id &&
+               type == other.type &&
                version == other.version;
     }
 };
@@ -125,7 +125,7 @@ struct UndoCommand {
     std::string description;        // Human-readable description
     std::any old_state;             // State before the operation
     std::any new_state;             // State after the operation
-    
+
     // Function to restore state - called during undo/redo
     std::function<void(const std::any&)> restore_fn;
 };
@@ -134,7 +134,7 @@ struct UndoCommand {
 struct CompositeCommand {
     std::vector<UndoCommand> sub_commands;
     std::string description;
-    
+
     bool empty() const { return sub_commands.empty(); }
 };
 
@@ -145,39 +145,39 @@ public:
     void record(UndoCommand cmd);
     void end_transaction();
     void cancel_transaction();
-    
+
     // Check if currently in a transaction
     bool in_transaction() const { return transaction_active_; }
-    
+
     // Undo/Redo operations
     bool undo();
     bool redo();
-    
+
     // State queries
     bool can_undo() const { return !undo_stack_.empty(); }
     bool can_redo() const { return !redo_stack_.empty(); }
     std::size_t undo_count() const { return undo_stack_.size(); }
     std::size_t redo_count() const { return redo_stack_.size(); }
-    
+
     // Get descriptions for UI
     std::optional<std::string> next_undo_description() const;
     std::optional<std::string> next_redo_description() const;
-    
+
     // Clear all history
     void clear();
-    
+
     // Set maximum history size (0 = unlimited)
     void set_max_history(std::size_t max) { max_history_ = max; }
 
 private:
     std::vector<CompositeCommand> undo_stack_;
     std::vector<CompositeCommand> redo_stack_;
-    
+
     bool transaction_active_ = false;
     CompositeCommand current_transaction_;
-    
+
     std::size_t max_history_ = 100;  // Default max history
-    
+
     void trim_history();
 };
 
@@ -214,19 +214,19 @@ public:
     // Get or create a store for an object
     ObjectStoreType* get(const std::string& object_id);
     ObjectStoreType* create(const std::string& object_id, ObjectState initial_state);
-    
+
     // Remove a store
     bool remove(const std::string& object_id);
-    
+
     // Check existence
     bool exists(const std::string& object_id) const;
-    
+
     // Get all store IDs
     std::vector<std::string> all_ids() const;
-    
+
     // Get count
     std::size_t size() const { return stores_.size(); }
-    
+
     // Iterate over all stores
     template<typename Fn>
     void for_each(Fn&& fn) {
@@ -234,7 +234,7 @@ public:
             fn(id, *store);
         }
     }
-    
+
     // Clear all stores
     void clear() { stores_.clear(); }
 
@@ -250,65 +250,65 @@ class MultiStoreController {
 public:
     MultiStoreController();
     ~MultiStoreController() = default;
-    
+
     // ===== Object Management =====
-    
+
     // Add a new object to the scene
-    void add_object(const std::string& id, 
-                   const std::string& type, 
+    void add_object(const std::string& id,
+                   const std::string& type,
                    Value initial_data,
                    bool undoable = true);
-    
+
     // Remove an object from the scene
     void remove_object(const std::string& id, bool undoable = true);
-    
+
     // Get object state (returns nullptr if not found)
     const ObjectState* get_object(const std::string& id) const;
-    
+
     // Get all object IDs
     std::vector<std::string> get_all_object_ids() const;
-    
+
     // ===== Property Editing =====
-    
+
     // Set a single property on an object
     void set_property(const std::string& object_id,
                      const std::string& property_name,
                      Value new_value,
                      bool undoable = true);
-    
+
     // Set multiple properties at once (single undo operation)
     void set_properties(const std::string& object_id,
                        const std::vector<std::pair<std::string, Value>>& properties,
                        bool undoable = true);
-    
+
     // Batch edit across multiple objects (single undo operation)
     void batch_edit(const std::vector<std::tuple<std::string, std::string, Value>>& edits,
                    bool undoable = true);
-    
+
     // ===== Selection =====
-    
+
     void select_object(const std::string& object_id);
     std::string get_selected_id() const;
-    
+
     // ===== Undo/Redo =====
-    
+
     bool undo() { return undo_manager_.undo(); }
     bool redo() { return undo_manager_.redo(); }
     bool can_undo() const { return undo_manager_.can_undo(); }
     bool can_redo() const { return undo_manager_.can_redo(); }
     std::size_t undo_count() const { return undo_manager_.undo_count(); }
     std::size_t redo_count() const { return undo_manager_.redo_count(); }
-    
+
     // Transaction API for complex operations
     void begin_transaction(const std::string& description = "");
     void end_transaction();
     void cancel_transaction();
-    
+
     // ===== Statistics =====
-    
+
     std::size_t object_count() const { return registry_.size(); }
     const SceneMetaState& get_scene_state() const;
-    
+
     // Access to undo manager for advanced usage
     UndoManager& undo_manager() { return undo_manager_; }
     const UndoManager& undo_manager() const { return undo_manager_; }
@@ -317,7 +317,7 @@ private:
     StoreRegistry registry_;
     std::unique_ptr<SceneStoreType> scene_store_;
     UndoManager undo_manager_;
-    
+
     // Helper to create restore function for object state
     std::function<void(const std::any&)> make_object_restore_fn(const std::string& object_id);
 };
@@ -339,4 +339,4 @@ void demo_multi_store_undo_redo();
 void demo_multi_store_performance();
 
 } // namespace multi_store
-} // namespace immer_lens
+} // namespace lager_ext

@@ -12,10 +12,10 @@ target_link_libraries(counter-std lager-example)
 add_dependencies(examples counter-std)
 
 # ============================================================
-# pathlens 子项目
-# 包含: pathlens (库), PathLensTest, Editor, Engine
+# lager_ext 子项目
+# 包含: lager_ext (库), LagerExtTest, Editor, Engine
 # ============================================================
-add_subdirectory(pathlens)
+add_subdirectory(lager_ext)
 
 # ncurses examples
 # ================

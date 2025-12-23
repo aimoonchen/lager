@@ -26,7 +26,7 @@
 #include <type_traits>
 #include <utility>
 
-namespace immer_lens {
+namespace lager_ext {
 namespace static_path {
 
 // ============================================================
@@ -36,25 +36,25 @@ namespace static_path {
 template<std::size_t N>
 struct FixedString {
     char data[N]{};
-    
+
     constexpr FixedString() = default;
-    
+
     constexpr FixedString(const char (&str)[N]) {
         std::copy_n(str, N, data);
     }
-    
+
     constexpr std::size_t size() const noexcept { return N - 1; }
     constexpr const char* c_str() const noexcept { return data; }
     constexpr std::string_view view() const noexcept { return {data, N - 1}; }
     constexpr operator std::string_view() const noexcept { return view(); }
     std::string to_string() const { return std::string{view()}; }
-    
+
     // Comparison operators for compile-time path comparison
     template<std::size_t M>
     constexpr bool operator==(const FixedString<M>& other) const noexcept {
         return view() == other.view();
     }
-    
+
     constexpr bool operator==(std::string_view sv) const noexcept {
         return view() == sv;
     }
@@ -74,11 +74,11 @@ struct KeySeg {
     static constexpr auto key = Key;
     static constexpr bool is_key = true;
     static constexpr bool is_index = false;
-    
+
     static std::string key_string() { return Key.to_string(); }
 };
 
-// Index segment - for vector access  
+// Index segment - for vector access
 template<std::size_t Index>
 struct IndexSeg {
     static constexpr std::size_t index = Index;
@@ -94,11 +94,11 @@ struct IndexSeg {
 template<FixedString Key>
 struct StaticKeyLens {
     static constexpr auto key = Key;
-    
+
     Value get(const Value& whole) const {
         return whole.at(key.to_string());
     }
-    
+
     Value set(Value whole, const Value& part) const {
         return whole.set(key.to_string(), part);
     }
@@ -108,11 +108,11 @@ struct StaticKeyLens {
 template<std::size_t Index>
 struct StaticIndexLens {
     static constexpr std::size_t index = Index;
-    
+
     Value get(const Value& whole) const {
         return whole.at(index);
     }
-    
+
     Value set(Value whole, const Value& part) const {
         return whole.set(index, part);
     }
@@ -130,16 +130,16 @@ struct ComposedLens;
 template<typename Lens>
 struct ComposedLens<Lens> {
     Lens lens;
-    
+
     constexpr ComposedLens() = default;
     constexpr explicit ComposedLens(Lens l) : lens(std::move(l)) {}
-    
-    Value get(const Value& v) const { 
-        return lens.get(v); 
+
+    Value get(const Value& v) const {
+        return lens.get(v);
     }
-    
-    Value set(Value v, const Value& x) const { 
-        return lens.set(std::move(v), x); 
+
+    Value set(Value v, const Value& x) const {
+        return lens.set(std::move(v), x);
     }
 };
 
@@ -148,17 +148,17 @@ template<typename First, typename... Rest>
 struct ComposedLens<First, Rest...> {
     First first;
     ComposedLens<Rest...> rest;
-    
+
     constexpr ComposedLens() = default;
-    
-    constexpr ComposedLens(First f, Rest... r) 
+
+    constexpr ComposedLens(First f, Rest... r)
         : first(std::move(f)), rest(std::move(r)...) {}
-    
+
     Value get(const Value& v) const {
         auto inner = first.get(v);
         return rest.get(inner);
     }
-    
+
     Value set(Value v, const Value& x) const {
         auto inner = first.get(v);
         auto new_inner = rest.set(std::move(inner), x);
@@ -170,13 +170,13 @@ struct ComposedLens<First, Rest...> {
 template<>
 struct ComposedLens<> {
     constexpr ComposedLens() = default;
-    
-    Value get(const Value& v) const { 
-        return v; 
+
+    Value get(const Value& v) const {
+        return v;
     }
-    
-    Value set(Value, const Value& x) const { 
-        return x; 
+
+    Value set(Value, const Value& x) const {
+        return x;
     }
 };
 
@@ -187,29 +187,29 @@ struct ComposedLens<> {
 template<typename... Segments>
 struct StaticPath {
     static constexpr std::size_t depth = sizeof...(Segments);
-    
+
     // Convert to composed lens at compile time
     static auto to_lens() {
         return make_lens_impl(std::index_sequence_for<Segments...>{});
     }
-    
+
     // Get value using this path
     static Value get(const Value& v) {
         return to_lens().get(v);
     }
-    
+
     // Set value using this path
     static Value set(Value v, const Value& x) {
         return to_lens().set(std::move(v), x);
     }
-    
+
     // Convert to runtime Path for compatibility
     static Path to_runtime_path() {
         Path result;
         (add_segment<Segments>(result), ...);
         return result;
     }
-    
+
 private:
     template<typename Seg>
     static void add_segment(Path& path) {
@@ -219,14 +219,14 @@ private:
             path.push_back(Seg::index);
         }
     }
-    
+
     template<std::size_t... Is>
     static auto make_lens_impl(std::index_sequence<Is...>) {
         return ComposedLens<decltype(segment_to_lens<Segments>())...>{
             segment_to_lens<Segments>()...
         };
     }
-    
+
     template<typename Seg>
     static auto segment_to_lens() {
         if constexpr (Seg::is_key) {
@@ -241,7 +241,7 @@ private:
 template<>
 struct StaticPath<> {
     static constexpr std::size_t depth = 0;
-    
+
     static Value get(const Value& v) { return v; }
     static Value set(Value, const Value& x) { return x; }
     static Path to_runtime_path() { return {}; }
@@ -299,15 +299,15 @@ using ExtendPathT = typename ExtendPath<BasePath, Segment>::type;
 
 // Define a key segment
 #define STATIC_KEY(name) \
-    immer_lens::static_path::KeySeg<immer_lens::static_path::FixedString{name}>
+    lager_ext::static_path::KeySeg<lager_ext::static_path::FixedString{name}>
 
 // Define an index segment
 #define STATIC_IDX(n) \
-    immer_lens::static_path::IndexSeg<n>
+    lager_ext::static_path::IndexSeg<n>
 
 // Define a complete path
 #define STATIC_PATH(...) \
-    immer_lens::static_path::StaticPath<__VA_ARGS__>
+    lager_ext::static_path::StaticPath<__VA_ARGS__>
 
 // ============================================================
 // PathRegistry - For organizing paths by schema
@@ -320,10 +320,10 @@ struct PathRegistry {
 
 // ============================================================
 // JSON Pointer Style Static Path
-// 
+//
 // Allows defining paths using JSON Pointer syntax:
 //   JsonPointerPath<"/users/0/name">
-// 
+//
 // This is equivalent to:
 //   StaticPath<K<"users">, I<0>, K<"name">>
 // ============================================================
@@ -353,10 +353,10 @@ template<FixedString Ptr>
 constexpr std::size_t count_segments() {
     std::string_view sv = Ptr.view();
     if (sv.empty()) return 0;
-    
+
     std::size_t start = (sv[0] == '/') ? 1 : 0;
     if (start >= sv.size()) return 0;
-    
+
     std::size_t count = 0;
     while (start < sv.size()) {
         ++count;
@@ -372,17 +372,17 @@ template<FixedString Ptr, std::size_t Index>
 constexpr std::string_view get_segment() {
     std::string_view sv = Ptr.view();
     std::size_t start = (sv[0] == '/') ? 1 : 0;
-    
+
     std::size_t current = 0;
     while (current < Index) {
         auto next = sv.find('/', start);
         start = next + 1;
         ++current;
     }
-    
+
     auto end = sv.find('/', start);
     if (end == std::string_view::npos) end = sv.size();
-    
+
     return sv.substr(start, end - start);
 }
 
@@ -429,7 +429,7 @@ constexpr auto make_segment_string() {
 template<FixedString Ptr, std::size_t Index>
 struct SegmentTypeAt {
     static constexpr bool is_idx = is_index_segment<Ptr, Index>();
-    
+
     using type = std::conditional_t<
         is_idx,
         IndexSeg<get_index_value<Ptr, Index>()>,
@@ -451,7 +451,7 @@ struct BuildPath<Ptr, std::index_sequence<Is...>> {
 // Main template: Convert JSON Pointer to StaticPath
 template<FixedString Ptr>
 using JsonPointerPath = typename detail::BuildPath<
-    Ptr, 
+    Ptr,
     std::make_index_sequence<detail::count_segments<Ptr>()>
 >::type;
 
@@ -463,4 +463,4 @@ using JsonPointerPath = typename detail::BuildPath<
 
 void demo_static_path();
 
-} // namespace immer_lens
+} // namespace lager_ext

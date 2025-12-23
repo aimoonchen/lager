@@ -21,7 +21,7 @@
 #include <concepts>
 #include <type_traits>
 
-namespace immer_lens {
+namespace lager_ext {
 
 // ============================================================
 // C++20 Concepts for lens element types
@@ -43,13 +43,13 @@ concept PathElementType = StringLike<T> || IndexLike<T>;
 
 // ============================================================
 // Unified Lens Interface (C++20 Concepts)
-// 
+//
 // This provides a common interface for all lens types:
 // - ErasedLens (Scheme 1)
 // - LagerValueLens (Scheme 2)
 // - StaticPath (compile-time)
 // - lager::lenses::* (lager built-in)
-// 
+//
 // Usage:
 //   template<ValueLens L>
 //   void process(const L& lens, const Value& data) { ... }
@@ -97,7 +97,7 @@ concept ValueLens = ValueGetter<L> && ValueSetter<L>;
 
 // ============================================================
 // Unified Lens Operations
-// 
+//
 // These free functions work with any lens type that satisfies
 // the ValueLens concept, providing a consistent API.
 // ============================================================
@@ -242,13 +242,13 @@ void clear_lens_cache();
 
 // ============================================================
 // Chainable Path Builder API
-// 
+//
 // Provides a fluent interface for constructing paths:
 //   auto path = PathBuilder().key("users").index(0).key("name");
 //   auto lens = path.to_lens();
 //   Value v = path.get(data);
 //   Value u = path.set(data, new_val);
-// 
+//
 // Also supports operator/ for concise path construction:
 //   auto lens = (root / "users" / 0 / "name").to_lens();
 // ============================================================
@@ -258,103 +258,103 @@ class PathBuilder {
 public:
     /// Create an empty path builder (root path)
     PathBuilder() = default;
-    
+
     /// Create from existing path
     explicit PathBuilder(Path path) : path_(std::move(path)) {}
-    
+
     /// Add a string key segment
     [[nodiscard]] PathBuilder key(const std::string& k) const & {
         PathBuilder result = *this;
         result.path_.push_back(k);
         return result;
     }
-    
+
     /// Add a string key segment (move optimization)
     [[nodiscard]] PathBuilder key(const std::string& k) && {
         path_.push_back(k);
         return std::move(*this);
     }
-    
+
     /// Add an index segment
     [[nodiscard]] PathBuilder index(std::size_t i) const & {
         PathBuilder result = *this;
         result.path_.push_back(i);
         return result;
     }
-    
+
     /// Add an index segment (move optimization)
     [[nodiscard]] PathBuilder index(std::size_t i) && {
         path_.push_back(i);
         return std::move(*this);
     }
-    
+
     /// Operator / for string keys (chainable)
     [[nodiscard]] PathBuilder operator/(const std::string& k) const & {
         return key(k);
     }
-    
+
     [[nodiscard]] PathBuilder operator/(const std::string& k) && {
         return std::move(*this).key(k);
     }
-    
+
     /// Operator / for const char* keys
     [[nodiscard]] PathBuilder operator/(const char* k) const & {
         return key(std::string{k});
     }
-    
+
     [[nodiscard]] PathBuilder operator/(const char* k) && {
         return std::move(*this).key(std::string{k});
     }
-    
+
     /// Operator / for index (chainable)
     [[nodiscard]] PathBuilder operator/(std::size_t i) const & {
         return index(i);
     }
-    
+
     [[nodiscard]] PathBuilder operator/(std::size_t i) && {
         return std::move(*this).index(i);
     }
-    
+
     /// Operator / for int index (convenience, avoids ambiguity)
     [[nodiscard]] PathBuilder operator/(int i) const & {
         return index(static_cast<std::size_t>(i));
     }
-    
+
     [[nodiscard]] PathBuilder operator/(int i) && {
         return std::move(*this).index(static_cast<std::size_t>(i));
     }
-    
+
     /// Convert to runtime Path
     [[nodiscard]] const Path& path() const noexcept { return path_; }
     [[nodiscard]] Path& path() noexcept { return path_; }
-    
+
     /// Convert to type-erased lens (uses caching)
     [[nodiscard]] LagerValueLens to_lens() const {
         return lager_path_lens(path_);
     }
-    
+
     /// Get value at this path
     [[nodiscard]] Value get(const Value& root) const {
         return lager::view(to_lens(), root);
     }
-    
+
     /// Set value at this path (returns new root)
     [[nodiscard]] Value set(const Value& root, Value new_val) const {
         return lager::set(to_lens(), root, std::move(new_val));
     }
-    
+
     /// Update value at this path with a function
     template<typename Fn>
     [[nodiscard]] Value over(const Value& root, Fn&& fn) const {
         return lager::over(to_lens(), root, std::forward<Fn>(fn));
     }
-    
+
     /// Check if path is empty (root path)
     [[nodiscard]] bool empty() const noexcept { return path_.empty(); }
-    
+
     /// Get path depth
     [[nodiscard]] std::size_t depth() const noexcept { return path_.size(); }
-    
+
     /// Concatenate two paths
     [[nodiscard]] PathBuilder concat(const PathBuilder& other) const {
         PathBuilder result = *this;
@@ -363,7 +363,7 @@ public:
         }
         return result;
     }
-    
+
     /// Get parent path (removes last segment)
     [[nodiscard]] PathBuilder parent() const {
         if (path_.empty()) return *this;
@@ -371,26 +371,26 @@ public:
         result.path_.assign(path_.begin(), path_.end() - 1);
         return result;
     }
-    
+
     /// Convert to string representation
     [[nodiscard]] std::string to_string() const {
         return path_to_string(path_);
     }
-    
+
     /// Equality comparison
     bool operator==(const PathBuilder& other) const {
         return path_ == other.path_;
     }
-    
+
     bool operator!=(const PathBuilder& other) const {
         return path_ != other.path_;
     }
-    
+
     /// Compare with raw Path
     bool operator==(const Path& other) const {
         return path_ == other;
     }
-    
+
     bool operator!=(const Path& other) const {
         return path_ != other;
     }
@@ -444,7 +444,7 @@ template<typename Fn, PathElementType... Elements>
 
 // ============================================================
 // Path Access Result (Structured Error Reporting)
-// 
+//
 // Provides detailed information about path access operations,
 // including success/failure status, error messages, and
 // partially resolved paths.
@@ -468,10 +468,10 @@ struct PathAccessResult {
     std::string error_message;      // Human-readable error description
     Path resolved_path;             // The portion of path that was successfully resolved
     std::size_t failed_at_index = 0; // Index in path where access failed (if failed)
-    
+
     /// Check if access was successful
     explicit operator bool() const noexcept { return success; }
-    
+
     /// Get the value (throws if not successful)
     const Value& get() const {
         if (!success) {
@@ -479,7 +479,7 @@ struct PathAccessResult {
         }
         return value;
     }
-    
+
     /// Get the value or a default
     Value get_or(Value default_val) const {
         return success ? value : std::move(default_val);
@@ -501,7 +501,7 @@ struct PathAccessResult {
 
 // ============================================================
 // HashedPath - Path with pre-computed hash
-// 
+//
 // For frequent cache lookups, pre-computing the hash value
 // avoids redundant computation on each access.
 // ============================================================
@@ -509,11 +509,11 @@ struct PathAccessResult {
 class HashedPath {
 public:
     /// Create from existing Path (computes hash immediately)
-    explicit HashedPath(Path path) 
+    explicit HashedPath(Path path)
         : path_(std::move(path))
         , hash_(compute_hash(path_))
     {}
-    
+
     /// Create from path elements (variadic)
     template<PathElementType... Elements>
     explicit HashedPath(Elements&&... elements)
@@ -523,70 +523,70 @@ public:
         (path_.push_back(convert_element(std::forward<Elements>(elements))), ...);
         hash_ = compute_hash(path_);
     }
-    
+
     /// Get the underlying path
     [[nodiscard]] const Path& path() const noexcept { return path_; }
-    
+
     /// Get the pre-computed hash
     [[nodiscard]] std::size_t hash() const noexcept { return hash_; }
-    
+
     /// Convert to lens (using cached lookup)
     [[nodiscard]] LagerValueLens to_lens() const {
         return lager_path_lens(path_);
     }
-    
+
     /// Equality comparison with HashedPath
     bool operator==(const HashedPath& other) const {
         return hash_ == other.hash_ && path_ == other.path_;
     }
-    
+
     bool operator!=(const HashedPath& other) const {
         return !(*this == other);
     }
-    
+
     /// Equality comparison with raw Path
     bool operator==(const Path& other) const {
         return path_ == other;
     }
-    
+
     bool operator!=(const Path& other) const {
         return path_ != other;
     }
-    
+
     /// Equality comparison with PathBuilder
     bool operator==(const PathBuilder& other) const {
         return path_ == other.path();
     }
-    
+
     bool operator!=(const PathBuilder& other) const {
         return path_ != other.path();
     }
-    
+
     /// Append element (returns new HashedPath)
     [[nodiscard]] HashedPath operator/(const std::string& key) const {
         Path new_path = path_;
         new_path.push_back(key);
         return HashedPath{std::move(new_path)};
     }
-    
+
     [[nodiscard]] HashedPath operator/(const char* key) const {
         return *this / std::string{key};
     }
-    
+
     [[nodiscard]] HashedPath operator/(std::size_t index) const {
         Path new_path = path_;
         new_path.push_back(index);
         return HashedPath{std::move(new_path)};
     }
-    
+
     [[nodiscard]] HashedPath operator/(int index) const {
         return *this / static_cast<std::size_t>(index);
     }
-    
+
 private:
     Path path_;
     std::size_t hash_;
-    
+
     template<typename T>
     static PathElement convert_element(T&& elem) {
         using U = std::decay_t<T>;
@@ -596,7 +596,7 @@ private:
             return static_cast<std::size_t>(elem);
         }
     }
-    
+
     static std::size_t compute_hash(const Path& path) {
         std::size_t hash = 0;
         for (const auto& elem : path) {
@@ -633,4 +633,4 @@ template<PathElementType... Elements>
 // ============================================================
 void demo_lager_lens();
 
-} // namespace immer_lens
+} // namespace lager_ext

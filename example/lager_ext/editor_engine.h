@@ -37,7 +37,7 @@
 #include <string>
 #include <vector>
 
-namespace immer_lens {
+namespace lager_ext {
 
 // ============================================================
 // UI Metadata - Information for generating Qt UI widgets
@@ -77,11 +77,11 @@ struct PropertyMeta {
     std::string tooltip;        // Tooltip text
     std::string category;       // Category for grouping in property editor
     WidgetType widget_type = WidgetType::LineEdit;
-    
+
     // Optional constraints
     std::optional<NumericRange> range;
     std::optional<ComboOptions> combo_options;
-    
+
     bool read_only = false;
     bool visible = true;
     int sort_order = 0;         // For ordering in UI
@@ -93,7 +93,7 @@ struct UIMeta {
     std::string type_name;      // Object type (e.g., "Transform", "Light")
     std::string icon_name;      // Icon for tree view
     std::vector<PropertyMeta> properties;
-    
+
     // Find property meta by name
     [[nodiscard]] const PropertyMeta* find_property(const std::string& name) const {
         for (const auto& prop : properties) {
@@ -113,7 +113,7 @@ struct SceneObject {
     std::string type;           // Object type name
     Value data;                 // Object properties as Value
     UIMeta meta;                // UI metadata for Qt binding
-    
+
     std::vector<std::string> children;  // Child object IDs
 };
 
@@ -143,10 +143,10 @@ template<ActionCategory Category, typename Payload>
 struct TaggedAction {
     Payload payload;
     static constexpr ActionCategory category = Category;
-    
+
     // Convenience constructor
     explicit TaggedAction(Payload p) : payload(std::move(p)) {}
-    
+
     // Default constructor for variant compatibility
     TaggedAction() : payload{} {}
 };
@@ -262,7 +262,7 @@ template<typename ActionVariant>
 bool should_record_undo(const ActionVariant& action) {
     return std::visit([](const auto& act) -> bool {
         using T = std::decay_t<decltype(act)>;
-        
+
         // Undo/Redo/ClearHistory themselves are never recorded
         if constexpr (std::is_same_v<T, actions::Undo> ||
                       std::is_same_v<T, actions::Redo> ||
@@ -286,12 +286,12 @@ bool should_record_undo(const ActionVariant& action) {
 
 struct EditorModel {
     SceneState scene;
-    
+
     // History for undo/redo - using flex_vector for O(1) operations at both ends
     immer::flex_vector<SceneState> undo_stack;
     immer::flex_vector<SceneState> redo_stack;
     static constexpr std::size_t max_history = 100;
-    
+
     // Dirty flag for change notification
     bool dirty = false;
 };
@@ -307,24 +307,24 @@ class EngineSimulator {
 public:
     EngineSimulator();
     ~EngineSimulator();
-    
+
     // Initialize with sample scene data
     void initialize_sample_scene();
-    
+
     // Get initial scene state (called by editor at startup)
     SceneState get_initial_state() const;
-    
+
     // Apply changes from editor (diff or full state)
     void apply_diff(const DiffResult& diff);
     void apply_full_state(const Value& state);
-    
+
     // Get current engine state as Value
     Value get_state_as_value() const;
-    
+
     // Register callback for engine events
     using EngineCallback = std::function<void(const std::string& event, const Value& data)>;
     void on_event(EngineCallback callback);
-    
+
     // Print current state (for debugging)
     void print_state() const;
 
@@ -347,38 +347,38 @@ class EditorController {
 public:
     EditorController();
     ~EditorController();
-    
+
     // Initialize with engine state
     void initialize(const SceneState& initial_state);
-    
+
     // Dispatch actions
     void dispatch(EditorAction action);
-    
+
     // Get current state
     [[nodiscard]] const EditorModel& get_model() const;
-    
+
     // Get currently selected object
     [[nodiscard]] const SceneObject* get_selected_object() const;
-    
+
     // Create a cursor for a property of the selected object
     // Returns null Value if no object is selected or property doesn't exist
     [[nodiscard]] Value get_property(const std::string& path) const;
-    
+
     // Set property value (shorthand for dispatch(SetProperty))
     void set_property(const std::string& path, Value value);
-    
+
     // Undo/Redo
     [[nodiscard]] bool can_undo() const;
     [[nodiscard]] bool can_redo() const;
     void undo();
     void redo();
-    
+
     // Set effect handlers
     void set_effects(EditorEffects effects);
-    
+
     // Process pending events (for manual event loop)
     void step();
-    
+
     // Watch for changes (returns unsubscribe function)
     using WatchCallback = std::function<void(const EditorModel&)>;
     [[nodiscard]] std::function<void()> watch(WatchCallback callback);
@@ -421,4 +421,4 @@ void demo_undo_redo();
 // Demo: User vs System actions and undo filtering
 void demo_action_categories();
 
-} // namespace immer_lens
+} // namespace lager_ext

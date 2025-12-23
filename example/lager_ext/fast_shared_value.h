@@ -35,12 +35,12 @@ namespace shared_memory {
 
 // Fake reference counting policy - all operations are no-op
 // Fully compatible with immer::no_refcount_policy
-// 
+//
 // All methods are marked noexcept to allow better compiler optimization
 struct fake_refcount_policy {
     fake_refcount_policy() noexcept = default;
     fake_refcount_policy(immer::disowned) noexcept {}
-    
+
     void inc() noexcept {}
     bool dec() noexcept { return false; }
     bool unique() noexcept { return false; }
@@ -65,7 +65,7 @@ struct fake_transience_policy {
                 bool operator==(edit) const noexcept { return true; }
                 bool operator!=(edit) const noexcept { return false; }
             };
-            
+
             // owner type - represents "modification permission owner"
             struct owner {
                 owner() noexcept = default;
@@ -73,10 +73,10 @@ struct fake_transience_policy {
                 owner(owner&&) noexcept = default;
                 owner& operator=(const owner&) noexcept = default;
                 owner& operator=(owner&&) noexcept = default;
-                
+
                 operator edit() const noexcept { return {}; }
             };
-            
+
             // ownee type - represents "managed object"
             struct ownee {
                 ownee() noexcept = default;
@@ -84,14 +84,14 @@ struct fake_transience_policy {
                 ownee(ownee&&) noexcept = default;
                 ownee& operator=(const ownee&) noexcept = default;
                 ownee& operator=(ownee&&) noexcept = default;
-                
+
                 ownee& operator=(edit) noexcept { return *this; }
-                
+
                 // Key: can_mutate() always returns true, meaning "can be modified"
                 bool can_mutate(edit) const noexcept { return true; }
                 bool owned() const noexcept { return true; }
             };
-            
+
             // Static noone member (empty owner)
             static owner noone;
         };
@@ -109,7 +109,7 @@ typename fake_transience_policy::apply<HP>::type::owner
 // FastSharedValue Type Definitions
 //==============================================================================
 
-namespace immer_lens {
+namespace lager_ext {
 
 // Shared memory policy with transient support (zero-overhead version)
 //
@@ -132,7 +132,7 @@ using fast_shared_memory_policy = immer::memory_policy<
 struct FastSharedValue;
 
 using FastSharedValueBox    = immer::box<FastSharedValue, fast_shared_memory_policy>;
-using FastSharedValueMap    = immer::map<::shared_memory::SharedString, 
+using FastSharedValueMap    = immer::map<::shared_memory::SharedString,
                                           FastSharedValueBox,
                                           ::shared_memory::SharedStringHash,
                                           ::shared_memory::SharedStringEqual,
@@ -143,7 +143,7 @@ using FastSharedValueArray  = immer::array<FastSharedValueBox, fast_shared_memor
 struct FastSharedTableEntry {
     ::shared_memory::SharedString id;
     FastSharedValueBox value;
-    
+
     bool operator==(const FastSharedTableEntry& other) const {
         return id == other.id && value == other.value;
     }
@@ -172,7 +172,7 @@ struct FastSharedValue {
     using value_array   = FastSharedValueArray;
     using value_table   = FastSharedValueTable;
     using table_entry   = FastSharedTableEntry;
-    
+
     // Math types (same as Value's math types - fixed-size, trivially copyable)
     using vec2_type     = Vec2;
     using vec3_type     = Vec3;
@@ -180,7 +180,7 @@ struct FastSharedValue {
     using mat3_type     = Mat3;
     using mat4x3_type   = Mat4x3;
     using mat4_type     = Mat4;
-    
+
     std::variant<int,
                  int64_t,
                  float,
@@ -225,17 +225,17 @@ struct FastSharedValue {
 
     template <typename T>
     const T* get_if() const { return std::get_if<T>(&data); }
-    
+
     template <typename T>
     bool is() const { return std::holds_alternative<T>(data); }
-    
+
     std::size_t type_index() const noexcept { return data.index(); }
     bool is_null() const noexcept { return std::holds_alternative<std::monostate>(data); }
-    
+
     const ::shared_memory::SharedString* get_string() const {
         return std::get_if<::shared_memory::SharedString>(&data);
     }
-    
+
     std::size_t size() const {
         if (auto* m = get_if<value_map>()) return m->size();
         if (auto* v = get_if<value_vector>()) return v->size();
@@ -321,7 +321,7 @@ inline FastSharedValueMap copy_local_map_to_fast_shared(const ValueMap& local_ma
     auto transient = FastSharedValueMap{}.transient();
     for (const auto& [key, value_box] : local_map) {
         transient.set(
-            ::shared_memory::SharedString(key), 
+            ::shared_memory::SharedString(key),
             copy_local_box_to_fast_shared(value_box));
     }
     return transient.persistent();
@@ -364,7 +364,7 @@ inline FastSharedValueTable copy_local_table_to_fast_shared(const ValueTable& lo
 inline Value fast_deep_copy_to_local(const FastSharedValue& shared) {
     return std::visit([](const auto& data) -> Value {
         using T = std::decay_t<decltype(data)>;
-        
+
         if constexpr (std::is_same_v<T, std::monostate>) {
             return Value{};
         }
@@ -426,7 +426,7 @@ inline Value fast_deep_copy_to_local(const FastSharedValue& shared) {
 inline FastSharedValue fast_deep_copy_to_shared(const Value& local) {
     return std::visit([](const auto& data) -> FastSharedValue {
         using T = std::decay_t<decltype(data)>;
-        
+
         if constexpr (std::is_same_v<T, std::monostate>) {
             return FastSharedValue{};
         }
@@ -506,33 +506,33 @@ class FastSharedValueHandle {
 public:
     FastSharedValueHandle() = default;
     ~FastSharedValueHandle() = default;
-    
+
     // Non-copyable
     FastSharedValueHandle(const FastSharedValueHandle&) = delete;
     FastSharedValueHandle& operator=(const FastSharedValueHandle&) = delete;
-    
+
     // Movable
     FastSharedValueHandle(FastSharedValueHandle&&) = default;
     FastSharedValueHandle& operator=(FastSharedValueHandle&&) = default;
-    
+
     /// @brief Create shared memory and write Value (called by process B)
-    /// 
+    ///
     /// @param name Shared memory region name (unique identifier)
     /// @param value The Value to copy to shared memory
     /// @param max_size Maximum size of shared memory region (default 100MB)
     /// @return true on success, false on failure
-    /// 
+    ///
     /// Uses fast_deep_copy_to_shared for O(n) construction complexity.
     /// On failure, the region is cleaned up automatically.
     /// Use last_error() to get the last error message (if any).
     bool create(const char* name, const Value& value, size_t max_size = 100 * 1024 * 1024) {
         last_error_.clear();
-        
+
         if (!region_.create(name, max_size)) {
             last_error_ = "Failed to create shared memory region";
             return false;
         }
-        
+
         // RAII guard for cleanup on exception
         struct RegionGuard {
             ::shared_memory::SharedMemoryRegion& region;
@@ -542,26 +542,26 @@ public:
                 if (!success) region.close();
             }
         } guard{region_};
-        
+
         ::shared_memory::set_current_shared_region(&region_);
-        
+
         try {
             void* value_storage = region_.allocate(sizeof(FastSharedValue), alignof(FastSharedValue));
             if (!value_storage) {
                 last_error_ = "Failed to allocate storage for FastSharedValue";
                 return false;
             }
-            
+
             auto* header = region_.header();
             size_t offset = static_cast<char*>(value_storage) - static_cast<char*>(region_.base());
             header->value_offset = offset;
-            
+
             // Using fast_deep_copy_to_shared - O(n) complexity!
             new (value_storage) FastSharedValue(fast_deep_copy_to_shared(value));
-            
+
             // Sync local cursor to shared header (required for single-threaded allocator)
             region_.sync_allocation_cursor();
-            
+
             guard.success = true;
             return true;
         }
@@ -574,12 +574,12 @@ public:
             return false;
         }
     }
-    
+
     // Open shared memory (called by process A)
     bool open(const char* name) {
         return region_.open(name);
     }
-    
+
     // Get FastSharedValue (true zero-copy read-only access!)
     const FastSharedValue* shared_value() const noexcept {
         if (!region_.is_valid()) {
@@ -593,7 +593,7 @@ public:
         return reinterpret_cast<const FastSharedValue*>(
             static_cast<char*>(region_.base()) + offset);
     }
-    
+
     // Deep copy to local Value
     Value copy_to_local() const {
         const FastSharedValue* sv = shared_value();
@@ -602,24 +602,24 @@ public:
         }
         return fast_deep_copy_to_local(*sv);
     }
-    
+
     bool is_valid() const noexcept { return region_.is_valid(); }
-    
+
     bool is_value_ready() const noexcept {
         if (!region_.is_valid()) return false;
         return region_.header()->value_offset != 0;
     }
-    
+
     ::shared_memory::SharedMemoryRegion& region() noexcept { return region_; }
     const ::shared_memory::SharedMemoryRegion& region() const noexcept { return region_; }
-    
+
     /// @brief Get the last error message (if any)
     /// @return Last error message, or empty string if no error
     const std::string& last_error() const noexcept { return last_error_; }
-    
+
 private:
     ::shared_memory::SharedMemoryRegion region_;
     std::string last_error_;
 };
 
-} // namespace immer_lens
+} // namespace lager_ext

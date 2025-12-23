@@ -5,7 +5,7 @@
 #include <immer/algorithm.hpp>
 #include <iostream>
 
-namespace immer_lens {
+namespace lager_ext {
 
 // ============================================================
 // RecursiveDiffCollector implementation
@@ -62,14 +62,14 @@ void RecursiveDiffCollector::diff_value(const Value& old_val, const Value& new_v
 {
     // Fast path: if types differ, record as Change
     if (old_val.data.index() != new_val.data.index()) [[unlikely]] {
-        diffs_.push_back({DiffEntry::Type::Change, current_path, 
+        diffs_.push_back({DiffEntry::Type::Change, current_path,
                           value_to_string(old_val), value_to_string(new_val)});
         return;
     }
 
     std::visit([&](const auto& old_arg) {
         using T = std::decay_t<decltype(old_arg)>;
-        
+
         if constexpr (std::is_same_v<T, ValueMap>) {
             const auto& new_map = *new_val.get_if<ValueMap>();
             diff_map(old_arg, new_map, current_path);
@@ -129,30 +129,30 @@ void RecursiveDiffCollector::diff_vector(const ValueVector& old_vec, const Value
     const size_t old_size = old_vec.size();
     const size_t new_size = new_vec.size();
     const size_t common_size = std::min(old_size, new_size);
-    
+
     // OPTIMIZED: Use push_back/pop_back pattern to avoid Path copying
     // Compare common indices
     for (size_t i = 0; i < common_size; ++i) {
         const auto& old_box = old_vec[i];
         const auto& new_box = new_vec[i];
-        
+
         // Optimization: immer::box pointer comparison - O(1)
         if (old_box.get() == new_box.get()) [[likely]] {
             continue;
         }
-        
+
         current_path.push_back(i);
         diff_value(*old_box, *new_box, current_path);
         current_path.pop_back();
     }
-    
+
     // Removed tail elements
     for (size_t i = common_size; i < old_size; ++i) {
         current_path.push_back(i);
         collect_removed(*old_vec[i], current_path);
         current_path.pop_back();
     }
-    
+
     // Added tail elements
     for (size_t i = common_size; i < new_size; ++i) {
         current_path.push_back(i);
@@ -231,18 +231,18 @@ void demo_immer_diff()
     std::cout << "New: [Alice, Bobby, Charlie, David]\n\n";
 
     std::cout << "Manual comparison:\n";
-    
+
     size_t old_size = old_vec.size();
     size_t new_size = new_vec.size();
     size_t common_size = std::min(old_size, new_size);
-    
+
     for (size_t i = 0; i < common_size; ++i) {
         const auto& old_box = old_vec[i];
         const auto& new_box = new_vec[i];
-        
+
         auto* old_str = old_box->get_if<std::string>();
         auto* new_str = new_box->get_if<std::string>();
-        
+
         if (old_str && new_str) {
             if (old_box == new_box) {
                 std::cout << "  [" << i << "] retained: " << *old_str << " (same pointer)\n";
@@ -253,13 +253,13 @@ void demo_immer_diff()
             }
         }
     }
-    
+
     for (size_t i = common_size; i < old_size; ++i) {
         if (auto* str = old_vec[i]->get_if<std::string>()) {
             std::cout << "  [" << i << "] removed: " << *str << "\n";
         }
     }
-    
+
     for (size_t i = common_size; i < new_size; ++i) {
         if (auto* str = new_vec[i]->get_if<std::string>()) {
             std::cout << "  [" << i << "] added: " << *str << "\n";
@@ -356,7 +356,7 @@ void demo_recursive_diff_collector()
     // Print states
     std::cout << "--- Old State ---\n";
     print_value(old_state, "", 1);
-    
+
     std::cout << "\n--- New State ---\n";
     print_value(new_state, "", 1);
 
@@ -370,4 +370,4 @@ void demo_recursive_diff_collector()
     std::cout << "\n=== Demo End ===\n\n";
 }
 
-} // namespace immer_lens
+} // namespace lager_ext
