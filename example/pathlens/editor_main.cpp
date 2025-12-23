@@ -686,7 +686,10 @@ public:
         // Initialize engine and sync state
         engine_.initialize_sample_scene();
         auto initialState = engine_.get_initial_state();
-        store_.dispatch(actions::SyncFromEngine{initialState});
+        store_.dispatch(actions::SyncFromEngine{payloads::SyncFromEngine{initialState}});
+        
+        // Force initial UI update
+        updateUI(store_.get());
     }
 
 private:
@@ -743,7 +746,7 @@ private:
     void setupConnections() {
         connect(objectTree_, &ObjectTreeWidget::objectSelected,
                 this, [this](const QString& objectId) {
-            store_.dispatch(actions::SelectObject{objectId.toStdString()});
+            store_.dispatch(actions::SelectObject{payloads::SelectObject{objectId.toStdString()}});
         });
         
         store_.watch([this](const EditorModel& model) {
@@ -752,21 +755,49 @@ private:
     }
 
     void updateUI(const EditorModel& model) {
-        objectTree_->setScene(model.scene);
+        // Check if scene objects changed (compare version or object count)
+        bool sceneChanged = (lastSceneVersion_ != model.scene.version) ||
+                           (lastObjectCount_ != model.scene.objects.size());
         
-        if (!model.scene.selected_id.empty()) {
-            // immer::map::find() returns const T* (pointer to value), not iterator
-            const SceneObject* obj_ptr = model.scene.objects.find(model.scene.selected_id);
-            if (obj_ptr != nullptr) {
-                propertyPanel_->setObject(obj_ptr, 
-                    [this](const std::string& path, Value val) {
-                        store_.dispatch(actions::SetProperty{path, std::move(val)});
-                    });
+        // Check if selection changed
+        bool selectionChanged = (lastSelectedId_ != model.scene.selected_id);
+        
+        // Only rebuild tree if scene structure actually changed
+        if (sceneChanged) {
+            // Save current selection before rebuilding
+            std::string savedSelection = model.scene.selected_id;
+            
+            objectTree_->blockSignals(true);
+            objectTree_->setScene(model.scene);
+            objectTree_->blockSignals(false);
+            
+            lastSceneVersion_ = model.scene.version;
+            lastObjectCount_ = model.scene.objects.size();
+        }
+        
+        // Update property panel based on selection
+        if (selectionChanged) {
+            lastSelectedId_ = model.scene.selected_id;
+            
+            if (!model.scene.selected_id.empty()) {
+                const SceneObject* obj_ptr = model.scene.objects.find(model.scene.selected_id);
+                if (obj_ptr != nullptr) {
+                    propertyPanel_->setObject(obj_ptr, 
+                        [this](const std::string& path, Value val) {
+                            store_.dispatch(actions::SetProperty{payloads::SetProperty{path, std::move(val)}});
+                        });
+                } else {
+                    propertyPanel_->setObject(nullptr, nullptr);
+                }
             } else {
                 propertyPanel_->setObject(nullptr, nullptr);
             }
-        } else {
-            propertyPanel_->setObject(nullptr, nullptr);
+        } else if (!model.scene.selected_id.empty()) {
+            // Selection didn't change, but object data might have - just update values
+            const SceneObject* obj_ptr = model.scene.objects.find(model.scene.selected_id);
+            if (obj_ptr != nullptr) {
+                propertyPanel_->updateValues(*obj_ptr);
+            }
         }
         
         undoAction_->setEnabled(!model.undo_stack.empty());
@@ -792,6 +823,11 @@ private:
     QAction* redoAction_;
     QAction* syncAction_;
     QLabel* historyLabel_;
+    
+    // State tracking for incremental updates
+    std::string lastSelectedId_;
+    std::size_t lastSceneVersion_ = 0;
+    std::size_t lastObjectCount_ = 0;
 };
 
 #include "editor_main.moc"

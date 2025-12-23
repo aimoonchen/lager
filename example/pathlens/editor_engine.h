@@ -87,8 +87,9 @@ struct PropertyMeta {
     int sort_order = 0;         // For ordering in UI
 };
 
-// Object UI metadata (collection of property metadata)
-struct ObjectMeta {
+// UI metadata for scene objects (collection of property metadata)
+// Used to generate Qt property editor widgets
+struct UIMeta {
     std::string type_name;      // Object type (e.g., "Transform", "Light")
     std::string icon_name;      // Icon for tree view
     std::vector<PropertyMeta> properties;
@@ -111,7 +112,7 @@ struct SceneObject {
     std::string id;             // Unique object ID
     std::string type;           // Object type name
     Value data;                 // Object properties as Value
-    ObjectMeta meta;            // UI metadata for Qt binding
+    UIMeta meta;                // UI metadata for Qt binding
     
     std::vector<std::string> children;  // Child object IDs
 };
@@ -125,60 +126,159 @@ struct SceneState {
 };
 
 // ============================================================
-// Editor Actions (for lager store)
+// Action Category - Distinguish user operations from system operations
 // ============================================================
 
-namespace actions {
+/// Action category for undo/redo filtering
+/// - User: User-initiated actions that should be recorded in undo history
+/// - System: System/internal actions that should NOT be recorded in undo history
+enum class ActionCategory {
+    User,    // User operations - recorded to undo history
+    System   // System operations - NOT recorded (e.g., loading, selection)
+};
 
-// Select an object for editing
+/// Tagged action wrapper - carries category metadata
+/// This allows the reducer to determine whether to record the action in undo history
+template<ActionCategory Category, typename Payload>
+struct TaggedAction {
+    Payload payload;
+    static constexpr ActionCategory category = Category;
+    
+    // Convenience constructor
+    explicit TaggedAction(Payload p) : payload(std::move(p)) {}
+    
+    // Default constructor for variant compatibility
+    TaggedAction() : payload{} {}
+};
+
+/// Convenience aliases for action tagging
+template<typename T>
+using UserAction = TaggedAction<ActionCategory::User, T>;
+
+template<typename T>
+using SystemAction = TaggedAction<ActionCategory::System, T>;
+
+// ============================================================
+// Action Payloads - The actual data for each action type
+// ============================================================
+
+namespace payloads {
+
+// Select an object for editing (system action - no undo needed)
 struct SelectObject {
     std::string object_id;
 };
 
-// Modify a property of the selected object
+// Modify a property of the selected object (user action - needs undo)
 struct SetProperty {
     std::string property_path;  // e.g., "position.x" or just "name"
     Value new_value;
 };
 
-// Batch property update
+// Batch property update (user action - needs undo)
 struct SetProperties {
     std::map<std::string, Value> updates;  // path -> value
 };
 
-// Undo/Redo markers
-struct Undo {};
-struct Redo {};
-
-// Sync from engine (receive full state)
+// Sync from engine - replaces entire state (system action - clears history)
 struct SyncFromEngine {
     SceneState new_state;
 };
 
-// Add a new object
+// Load objects in batch (system action - for incremental loading, no undo)
+struct LoadObjects {
+    std::vector<SceneObject> objects;
+};
+
+// Add a new object (user action - needs undo)
 struct AddObject {
     SceneObject object;
     std::string parent_id;
 };
 
-// Remove an object
+// Remove an object (user action - needs undo)
 struct RemoveObject {
     std::string object_id;
 };
 
+// Set loading state (system action - UI state, no undo)
+struct SetLoadingState {
+    bool is_loading;
+    float progress;
+};
+
+} // namespace payloads
+
+// ============================================================
+// Editor Actions - Tagged with User/System category
+// ============================================================
+
+namespace actions {
+
+// ===== Undo/Redo control actions =====
+struct Undo {};
+struct Redo {};
+struct ClearHistory {};  // Clear undo/redo history (e.g., after scene load)
+
+// ===== User Actions (recorded to undo history) =====
+using SetProperty = UserAction<payloads::SetProperty>;
+using SetProperties = UserAction<payloads::SetProperties>;
+using AddObject = UserAction<payloads::AddObject>;
+using RemoveObject = UserAction<payloads::RemoveObject>;
+
+// ===== System Actions (NOT recorded to undo history) =====
+using SelectObject = SystemAction<payloads::SelectObject>;
+using SyncFromEngine = SystemAction<payloads::SyncFromEngine>;
+using LoadObjects = SystemAction<payloads::LoadObjects>;
+using SetLoadingState = SystemAction<payloads::SetLoadingState>;
+
 } // namespace actions
 
-// Action variant for lager
+// Action variant for lager - includes all tagged actions
 using EditorAction = std::variant<
-    actions::SelectObject,
-    actions::SetProperty,
-    actions::SetProperties,
+    // Control actions
     actions::Undo,
     actions::Redo,
-    actions::SyncFromEngine,
+    actions::ClearHistory,
+    // User actions (recorded to undo)
+    actions::SetProperty,
+    actions::SetProperties,
     actions::AddObject,
-    actions::RemoveObject
+    actions::RemoveObject,
+    // System actions (NOT recorded to undo)
+    actions::SelectObject,
+    actions::SyncFromEngine,
+    actions::LoadObjects,
+    actions::SetLoadingState
 >;
+
+// ============================================================
+// Helper: Check if an action should be recorded to undo history
+// ============================================================
+
+/// Determines whether an action should be recorded in the undo history
+/// Returns true for UserAction, false for SystemAction and control actions
+template<typename ActionVariant>
+bool should_record_undo(const ActionVariant& action) {
+    return std::visit([](const auto& act) -> bool {
+        using T = std::decay_t<decltype(act)>;
+        
+        // Undo/Redo/ClearHistory themselves are never recorded
+        if constexpr (std::is_same_v<T, actions::Undo> ||
+                      std::is_same_v<T, actions::Redo> ||
+                      std::is_same_v<T, actions::ClearHistory>) {
+            return false;
+        }
+        // Check TaggedAction category
+        else if constexpr (requires { T::category; }) {
+            return T::category == ActionCategory::User;
+        }
+        // Untagged actions default to recording (safety)
+        else {
+            return true;
+        }
+    }, action);
+}
 
 // ============================================================
 // Editor State Model (for lager store)
@@ -317,5 +417,8 @@ void demo_property_editing();
 
 // Demo: Undo/Redo functionality
 void demo_undo_redo();
+
+// Demo: User vs System actions and undo filtering
+void demo_action_categories();
 
 } // namespace immer_lens

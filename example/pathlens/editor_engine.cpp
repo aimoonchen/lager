@@ -31,79 +31,27 @@ static Path parse_property_path(const std::string& path_str) {
 // Editor Reducer Implementation
 // ============================================================
 
+// Helper: Save current state to undo stack (only for user actions)
+static void push_undo_state(EditorModel& model) {
+    model.undo_stack = model.undo_stack.push_back(model.scene);
+    if (model.undo_stack.size() > EditorModel::max_history) {
+        model.undo_stack = model.undo_stack.drop(1);  // O(1) drop from front
+    }
+    model.redo_stack = immer::flex_vector<SceneState>{};  // Clear redo stack
+}
+
 EditorModel editor_update(EditorModel model, EditorAction action) {
-    return std::visit([&model](auto&& act) -> EditorModel {
+    // Check if this action should be recorded to undo history
+    const bool record_undo = should_record_undo(action);
+    
+    return std::visit([&model, record_undo](auto&& act) -> EditorModel {
         using T = std::decay_t<decltype(act)>;
         
-        if constexpr (std::is_same_v<T, actions::SelectObject>) {
-            // Select object for editing
-            // immer::map::find() returns const T* (pointer), not iterator
-            if (model.scene.objects.find(act.object_id) != nullptr) {
-                model.scene.selected_id = act.object_id;
-            }
-            return model;
-        }
-        else if constexpr (std::is_same_v<T, actions::SetProperty>) {
-            // Modify property of selected object
-            if (model.scene.selected_id.empty()) {
-                return model;
-            }
-            
-            // immer::map::find() returns const T* (pointer to value), not iterator
-            const SceneObject* obj_ptr = model.scene.objects.find(model.scene.selected_id);
-            if (obj_ptr == nullptr) {
-                return model;
-            }
-            
-            // Save current state for undo - flex_vector has O(1) push_back and drop(1)
-            model.undo_stack = model.undo_stack.push_back(model.scene);
-            if (model.undo_stack.size() > EditorModel::max_history) {
-                model.undo_stack = model.undo_stack.drop(1);  // O(1) drop from front
-            }
-            model.redo_stack = immer::flex_vector<SceneState>{};  // Clear redo stack
-            
-            // Update property using immer::map::set() for immutable update
-            Path path = parse_property_path(act.property_path);
-            SceneObject updated_obj = *obj_ptr;
-            updated_obj.data = set_at_path_direct(updated_obj.data, path, act.new_value);
-            model.scene.objects = model.scene.objects.set(model.scene.selected_id, updated_obj);
-            model.scene.version++;
-            model.dirty = true;
-            
-            return model;
-        }
-        else if constexpr (std::is_same_v<T, actions::SetProperties>) {
-            // Batch update multiple properties
-            if (model.scene.selected_id.empty()) {
-                return model;
-            }
-            
-            // immer::map::find() returns const T* (pointer to value), not iterator
-            const SceneObject* obj_ptr = model.scene.objects.find(model.scene.selected_id);
-            if (obj_ptr == nullptr) {
-                return model;
-            }
-            
-            // Save current state for undo - flex_vector has O(1) push_back and drop(1)
-            model.undo_stack = model.undo_stack.push_back(model.scene);
-            if (model.undo_stack.size() > EditorModel::max_history) {
-                model.undo_stack = model.undo_stack.drop(1);  // O(1) drop from front
-            }
-            model.redo_stack = immer::flex_vector<SceneState>{};  // Clear redo stack
-            
-            // Update all properties using immer::map::set() for immutable update
-            SceneObject updated_obj = *obj_ptr;
-            for (const auto& [path_str, value] : act.updates) {
-                Path path = parse_property_path(path_str);
-                updated_obj.data = set_at_path_direct(updated_obj.data, path, value);
-            }
-            model.scene.objects = model.scene.objects.set(model.scene.selected_id, updated_obj);
-            model.scene.version++;
-            model.dirty = true;
-            
-            return model;
-        }
-        else if constexpr (std::is_same_v<T, actions::Undo>) {
+        // ============================================================
+        // Control Actions (Undo/Redo/ClearHistory)
+        // ============================================================
+        
+        if constexpr (std::is_same_v<T, actions::Undo>) {
             if (model.undo_stack.empty()) {
                 return model;
             }
@@ -113,7 +61,7 @@ EditorModel editor_update(EditorModel model, EditorAction action) {
             
             // Restore previous state - flex_vector has O(1) back() and take()
             model.scene = model.undo_stack.back();
-            model.undo_stack = model.undo_stack.take(model.undo_stack.size() - 1);  // pop_back equivalent
+            model.undo_stack = model.undo_stack.take(model.undo_stack.size() - 1);
             model.dirty = true;
             
             return model;
@@ -128,36 +76,142 @@ EditorModel editor_update(EditorModel model, EditorAction action) {
             
             // Restore next state
             model.scene = model.redo_stack.back();
-            model.redo_stack = model.redo_stack.take(model.redo_stack.size() - 1);  // pop_back equivalent
+            model.redo_stack = model.redo_stack.take(model.redo_stack.size() - 1);
             model.dirty = true;
             
             return model;
         }
+        else if constexpr (std::is_same_v<T, actions::ClearHistory>) {
+            // Clear undo/redo history (e.g., after loading a new scene)
+            model.undo_stack = immer::flex_vector<SceneState>{};
+            model.redo_stack = immer::flex_vector<SceneState>{};
+            return model;
+        }
+        
+        // ============================================================
+        // System Actions (NOT recorded to undo history)
+        // ============================================================
+        
+        else if constexpr (std::is_same_v<T, actions::SelectObject>) {
+            // Select object for editing - SystemAction, no undo
+            const auto& payload = act.payload;
+            if (model.scene.objects.find(payload.object_id) != nullptr) {
+                model.scene.selected_id = payload.object_id;
+            }
+            return model;
+        }
         else if constexpr (std::is_same_v<T, actions::SyncFromEngine>) {
-            // Full sync from engine (replaces current state)
-            model.scene = act.new_state;
-            model.undo_stack = immer::flex_vector<SceneState>{};  // Clear
-            model.redo_stack = immer::flex_vector<SceneState>{};  // Clear
+            // Full sync from engine (replaces current state) - clears history
+            const auto& payload = act.payload;
+            model.scene = payload.new_state;
+            model.undo_stack = immer::flex_vector<SceneState>{};
+            model.redo_stack = immer::flex_vector<SceneState>{};
             model.dirty = false;
+            return model;
+        }
+        else if constexpr (std::is_same_v<T, actions::LoadObjects>) {
+            // Batch load objects - SystemAction, no undo (used for incremental loading)
+            const auto& payload = act.payload;
+            
+            // Use transient builder for O(n) batch insertion
+            auto builder = model.scene.objects.transient();
+            for (const auto& obj : payload.objects) {
+                builder.set(obj.id, obj);
+            }
+            model.scene.objects = std::move(builder).persistent();
+            model.scene.version++;
+            model.dirty = true;
+            
+            return model;
+        }
+        else if constexpr (std::is_same_v<T, actions::SetLoadingState>) {
+            // Set loading state - SystemAction, no undo (UI state only)
+            // Note: In a full implementation, you might have a separate loading_state field
+            // For now, this is a placeholder that doesn't modify scene state
+            return model;
+        }
+        
+        // ============================================================
+        // User Actions (recorded to undo history)
+        // ============================================================
+        
+        else if constexpr (std::is_same_v<T, actions::SetProperty>) {
+            // Modify property of selected object - UserAction
+            const auto& payload = act.payload;
+            
+            if (model.scene.selected_id.empty()) {
+                return model;
+            }
+            
+            const SceneObject* obj_ptr = model.scene.objects.find(model.scene.selected_id);
+            if (obj_ptr == nullptr) {
+                return model;
+            }
+            
+            // Record undo state (this is a UserAction)
+            if (record_undo) {
+                push_undo_state(model);
+            }
+            
+            // Update property using immer::map::set() for immutable update
+            Path path = parse_property_path(payload.property_path);
+            SceneObject updated_obj = *obj_ptr;
+            updated_obj.data = set_at_path_direct(updated_obj.data, path, payload.new_value);
+            model.scene.objects = model.scene.objects.set(model.scene.selected_id, updated_obj);
+            model.scene.version++;
+            model.dirty = true;
+            
+            return model;
+        }
+        else if constexpr (std::is_same_v<T, actions::SetProperties>) {
+            // Batch update multiple properties - UserAction
+            const auto& payload = act.payload;
+            
+            if (model.scene.selected_id.empty()) {
+                return model;
+            }
+            
+            const SceneObject* obj_ptr = model.scene.objects.find(model.scene.selected_id);
+            if (obj_ptr == nullptr) {
+                return model;
+            }
+            
+            // Record undo state (this is a UserAction)
+            if (record_undo) {
+                push_undo_state(model);
+            }
+            
+            // Update all properties
+            SceneObject updated_obj = *obj_ptr;
+            for (const auto& [path_str, value] : payload.updates) {
+                Path path = parse_property_path(path_str);
+                updated_obj.data = set_at_path_direct(updated_obj.data, path, value);
+            }
+            model.scene.objects = model.scene.objects.set(model.scene.selected_id, updated_obj);
+            model.scene.version++;
+            model.dirty = true;
             
             return model;
         }
         else if constexpr (std::is_same_v<T, actions::AddObject>) {
-            // Save for undo
-            model.undo_stack = model.undo_stack.push_back(model.scene);
-            model.redo_stack = immer::flex_vector<SceneState>{};  // Clear redo stack
+            // Add a new object - UserAction
+            const auto& payload = act.payload;
+            
+            // Record undo state (this is a UserAction)
+            if (record_undo) {
+                push_undo_state(model);
+            }
             
             // Add the object using immer::map::set()
-            model.scene.objects = model.scene.objects.set(act.object.id, act.object);
+            model.scene.objects = model.scene.objects.set(payload.object.id, payload.object);
             
             // Add to parent's children list
-            if (!act.parent_id.empty()) {
-                const SceneObject* parent_ptr = model.scene.objects.find(act.parent_id);
+            if (!payload.parent_id.empty()) {
+                const SceneObject* parent_ptr = model.scene.objects.find(payload.parent_id);
                 if (parent_ptr != nullptr) {
-                    // Create updated parent with new child
                     SceneObject updated_parent = *parent_ptr;
-                    updated_parent.children.push_back(act.object.id);
-                    model.scene.objects = model.scene.objects.set(act.parent_id, updated_parent);
+                    updated_parent.children.push_back(payload.object.id);
+                    model.scene.objects = model.scene.objects.set(payload.parent_id, updated_parent);
                 }
             }
             
@@ -167,37 +221,38 @@ EditorModel editor_update(EditorModel model, EditorAction action) {
             return model;
         }
         else if constexpr (std::is_same_v<T, actions::RemoveObject>) {
-            // immer::map::find() returns const T* (pointer to value), not iterator
-            const SceneObject* obj_ptr = model.scene.objects.find(act.object_id);
+            // Remove an object - UserAction
+            const auto& payload = act.payload;
+            
+            const SceneObject* obj_ptr = model.scene.objects.find(payload.object_id);
             if (obj_ptr == nullptr) {
                 return model;
             }
             
-            // Save for undo
-            model.undo_stack = model.undo_stack.push_back(model.scene);
-            model.redo_stack = immer::flex_vector<SceneState>{};  // Clear redo stack
+            // Record undo state (this is a UserAction)
+            if (record_undo) {
+                push_undo_state(model);
+            }
             
             // Remove from parent's children list (immutably)
-            // Find parent that contains this child
             for (const auto& [id, obj] : model.scene.objects) {
-                auto child_it = std::find(obj.children.begin(), obj.children.end(), act.object_id);
+                auto child_it = std::find(obj.children.begin(), obj.children.end(), payload.object_id);
                 if (child_it != obj.children.end()) {
-                    // Create updated parent with child removed
                     SceneObject updated_parent = obj;
                     updated_parent.children.erase(
                         std::find(updated_parent.children.begin(), 
                                   updated_parent.children.end(), 
-                                  act.object_id));
+                                  payload.object_id));
                     model.scene.objects = model.scene.objects.set(id, updated_parent);
                     break;
                 }
             }
             
             // Remove the object using immer::map::erase()
-            model.scene.objects = model.scene.objects.erase(act.object_id);
+            model.scene.objects = model.scene.objects.erase(payload.object_id);
             
             // Clear selection if removed object was selected
-            if (model.scene.selected_id == act.object_id) {
+            if (model.scene.selected_id == payload.object_id) {
                 model.scene.selected_id.clear();
             }
             
@@ -235,7 +290,7 @@ void EngineSimulator::initialize_sample_scene() {
     // Create a sample scene with a few objects
     
     // ===== Transform component metadata =====
-    ObjectMeta transform_meta;
+    UIMeta transform_meta;
     transform_meta.type_name = "Transform";
     transform_meta.icon_name = "transform_icon";
     transform_meta.properties = {
@@ -260,7 +315,7 @@ void EngineSimulator::initialize_sample_scene() {
     };
     
     // ===== Light component metadata =====
-    ObjectMeta light_meta;
+    UIMeta light_meta;
     light_meta.type_name = "Light";
     light_meta.icon_name = "light_icon";
     light_meta.properties = {
@@ -277,7 +332,7 @@ void EngineSimulator::initialize_sample_scene() {
     };
     
     // ===== Mesh component metadata =====
-    ObjectMeta mesh_meta;
+    UIMeta mesh_meta;
     mesh_meta.type_name = "MeshRenderer";
     mesh_meta.icon_name = "mesh_icon";
     mesh_meta.properties = {
@@ -560,7 +615,8 @@ Value EditorController::get_property(const std::string& path) const {
 }
 
 void EditorController::set_property(const std::string& path, Value value) {
-    dispatch(actions::SetProperty{path, std::move(value)});
+    // SetProperty is a UserAction - will be recorded to undo history
+    dispatch(actions::SetProperty{payloads::SetProperty{path, std::move(value)}});
 }
 
 bool EditorController::can_undo() const {
@@ -691,7 +747,8 @@ void demo_editor_engine() {
     
     // ===== Step 3: Select an Object for Editing =====
     std::cout << "\n=== Step 3: Select Object for Editing ===\n";
-    editor.dispatch(actions::SelectObject{"light_sun"});
+    // SelectObject is a SystemAction - won't be recorded to undo history
+    editor.dispatch(actions::SelectObject{payloads::SelectObject{"light_sun"}});
     
     const SceneObject* selected = editor.get_selected_object();
     if (selected) {
@@ -763,7 +820,8 @@ void demo_editor_engine() {
     
     // ===== Step 8: Switch to Different Object =====
     std::cout << "\n=== Step 8: Switch to Different Object ===\n";
-    editor.dispatch(actions::SelectObject{"cube_1"});
+    // SelectObject is a SystemAction - won't be recorded to undo history
+    editor.dispatch(actions::SelectObject{payloads::SelectObject{"cube_1"}});
     
     selected = editor.get_selected_object();
     if (selected) {
@@ -805,8 +863,8 @@ void demo_property_editing() {
     EditorController editor;
     editor.initialize(engine.get_initial_state());
     
-    // Select the camera object
-    editor.dispatch(actions::SelectObject{"camera_main"});
+    // Select the camera object - SystemAction, won't be recorded to undo history
+    editor.dispatch(actions::SelectObject{payloads::SelectObject{"camera_main"}});
     
     const SceneObject* camera = editor.get_selected_object();
     if (!camera) {
@@ -823,13 +881,13 @@ void demo_property_editing() {
     
     std::cout << "New position.y: " << value_to_string(editor.get_property("position.y")) << "\n";
     
-    // Batch update
+    // Batch update - UserAction, will be recorded to undo history
     std::cout << "\nSimulating batch update (drag 3D gizmo):\n";
-    editor.dispatch(actions::SetProperties{std::map<std::string, Value>{
+    editor.dispatch(actions::SetProperties{payloads::SetProperties{std::map<std::string, Value>{
         {"position.x", Value{5.0}},
         {"position.y", Value{7.5}},
         {"position.z", Value{-15.0}}
-    }});
+    }}});
     
     std::cout << "New position: ("
               << value_to_string(editor.get_property("position.x")) << ", "
@@ -858,9 +916,10 @@ void demo_undo_redo() {
     });
     
     editor.initialize(engine.get_initial_state());
-    editor.dispatch(actions::SelectObject{"light_sun"});
+    // SelectObject is a SystemAction - won't be recorded to undo history
+    editor.dispatch(actions::SelectObject{payloads::SelectObject{"light_sun"}});
     
-    std::cout << "Initial intensity: " 
+    std::cout << "Initial intensity: "
               << value_to_string(editor.get_property("intensity")) << "\n";
     
     // Make several changes
@@ -897,6 +956,127 @@ void demo_undo_redo() {
     }
     
     std::cout << "\n=== Demo End ===\n\n";
+}
+
+// ============================================================
+// Demo: User vs System Actions and Undo Filtering
+// ============================================================
+
+void demo_action_categories() {
+    std::cout << "\n";
+    std::cout << "╔══════════════════════════════════════════════════════════════╗\n";
+    std::cout << "║       User Action vs System Action - Undo Filtering Demo     ║\n";
+    std::cout << "╚══════════════════════════════════════════════════════════════╝\n\n";
+    
+    EngineSimulator engine;
+    engine.initialize_sample_scene();
+    
+    EditorController editor;
+    editor.initialize(engine.get_initial_state());
+    
+    auto print_undo_status = [&editor]() {
+        std::cout << "  Undo stack size: " << editor.get_model().undo_stack.size()
+                  << ", Redo stack size: " << editor.get_model().redo_stack.size() << "\n";
+    };
+    
+    std::cout << "=== Initial State ===\n";
+    print_undo_status();
+    
+    // ===== System Actions (should NOT affect undo history) =====
+    std::cout << "\n=== System Actions (should NOT be recorded to undo) ===\n";
+    
+    std::cout << "\n1. SelectObject (SystemAction) - selecting 'light_sun':\n";
+    editor.dispatch(actions::SelectObject{payloads::SelectObject{"light_sun"}});
+    print_undo_status();
+    std::cout << "   -> Undo stack unchanged (selection is not undoable)\n";
+    
+    std::cout << "\n2. SelectObject (SystemAction) - selecting 'cube_1':\n";
+    editor.dispatch(actions::SelectObject{payloads::SelectObject{"cube_1"}});
+    print_undo_status();
+    std::cout << "   -> Undo stack still unchanged\n";
+    
+    std::cout << "\n3. LoadObjects (SystemAction) - simulating batch load:\n";
+    // Create a test object
+    SceneObject test_obj;
+    test_obj.id = "loaded_obj_1";
+    test_obj.type = "LoadedMesh";
+    test_obj.data = MapBuilder()
+        .set("name", Value{std::string{"Loaded Object"}})
+        .finish();
+    
+    editor.dispatch(actions::LoadObjects{payloads::LoadObjects{{test_obj}}});
+    print_undo_status();
+    std::cout << "   -> Undo stack still unchanged (loading is not undoable)\n";
+    std::cout << "   -> Object count: " << editor.get_model().scene.objects.size() << "\n";
+    
+    // ===== User Actions (SHOULD affect undo history) =====
+    std::cout << "\n=== User Actions (SHOULD be recorded to undo) ===\n";
+    
+    // First, select an object to edit
+    editor.dispatch(actions::SelectObject{payloads::SelectObject{"light_sun"}});
+    
+    std::cout << "\n4. SetProperty (UserAction) - changing intensity to 5.0:\n";
+    editor.set_property("intensity", Value{5.0});
+    print_undo_status();
+    std::cout << "   -> Undo stack increased by 1 (user edit is undoable)\n";
+    
+    std::cout << "\n5. SetProperty (UserAction) - changing intensity to 8.0:\n";
+    editor.set_property("intensity", Value{8.0});
+    print_undo_status();
+    std::cout << "   -> Undo stack increased by 1 again\n";
+    
+    std::cout << "\n6. SetProperties (UserAction) - batch update:\n";
+    editor.dispatch(actions::SetProperties{payloads::SetProperties{std::map<std::string, Value>{
+        {"color", Value{std::string{"#00FF00"}}},
+        {"enabled", Value{false}}
+    }}});
+    print_undo_status();
+    std::cout << "   -> Undo stack increased by 1 (batch edit is one undoable unit)\n";
+    
+    // ===== Mixed Operations Demo =====
+    std::cout << "\n=== Mixed Operations - Interleaving User and System Actions ===\n";
+    
+    std::cout << "\n7. Switching selection (SystemAction):\n";
+    editor.dispatch(actions::SelectObject{payloads::SelectObject{"cube_1"}});
+    print_undo_status();
+    std::cout << "   -> Undo stack unchanged\n";
+    
+    std::cout << "\n8. SetProperty on new object (UserAction):\n";
+    editor.set_property("visible", Value{false});
+    print_undo_status();
+    std::cout << "   -> Undo stack increased by 1\n";
+    
+    // ===== Undo Demo =====
+    std::cout << "\n=== Undo Demo - Only User Actions are reversed ===\n";
+    
+    std::cout << "\nUndoing operations:\n";
+    int undo_count = 0;
+    while (editor.can_undo()) {
+        editor.undo();
+        undo_count++;
+        std::cout << "  Undo #" << undo_count << ": ";
+        print_undo_status();
+    }
+    
+    std::cout << "\nTotal undos performed: " << undo_count << "\n";
+    std::cout << "Note: Selection changes and LoadObjects were NOT included in undo!\n";
+    
+    // ===== Summary =====
+    std::cout << "\n";
+    std::cout << "╔══════════════════════════════════════════════════════════════╗\n";
+    std::cout << "║                      Summary                                 ║\n";
+    std::cout << "╠══════════════════════════════════════════════════════════════╣\n";
+    std::cout << "║  UserAction (recorded to undo):                              ║\n";
+    std::cout << "║    - SetProperty, SetProperties, AddObject, RemoveObject     ║\n";
+    std::cout << "║                                                              ║\n";
+    std::cout << "║  SystemAction (NOT recorded to undo):                        ║\n";
+    std::cout << "║    - SelectObject, LoadObjects, SyncFromEngine, etc.         ║\n";
+    std::cout << "║                                                              ║\n";
+    std::cout << "║  Benefits:                                                   ║\n";
+    std::cout << "║    - Undo history only contains meaningful user edits        ║\n";
+    std::cout << "║    - Incremental loading won't pollute undo stack            ║\n";
+    std::cout << "║    - Selection changes don't create unnecessary history      ║\n";
+    std::cout << "╚══════════════════════════════════════════════════════════════╝\n\n";
 }
 
 } // namespace immer_lens

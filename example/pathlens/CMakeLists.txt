@@ -56,6 +56,8 @@ set(PATHLENS_LIB_SOURCES
     diff_collector.cpp
     shared_state.cpp
     editor_engine.cpp
+    multi_store_engine.cpp
+    delta_undo_engine.cpp
 )
 
 set(PATHLENS_LIB_HEADERS
@@ -69,6 +71,8 @@ set(PATHLENS_LIB_HEADERS
     shared_state.h
     shared_value.h
     editor_engine.h
+    multi_store_engine.h
+    delta_undo_engine.h
 )
 
 add_library(pathlens STATIC ${PATHLENS_LIB_SOURCES} ${PATHLENS_LIB_HEADERS})

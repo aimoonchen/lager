@@ -19,9 +19,12 @@
 #include <immer/array_transient.hpp>
 #include <immer/box.hpp>
 #include <immer/map.hpp>
+#include <immer/map_transient.hpp>
 #include <immer/memory_policy.hpp>
 #include <immer/table.hpp>
+#include <immer/table_transient.hpp>
 #include <immer/vector.hpp>
+#include <immer/vector_transient.hpp>
 
 #include <algorithm>  // for std::copy_n
 #include <array>      // for Vec2, Vec3, Vec4, Mat3, Mat4x3, Mat4
