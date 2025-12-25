@@ -12,7 +12,7 @@
 
 #pragma once
 
-#include "value.h"
+#include <lager_ext/value.h>
 
 #include <lager/store.hpp>
 #include <lager/event_loop/manual.hpp>
@@ -119,7 +119,19 @@ SceneMetaState scene_update(SceneMetaState state, SceneAction action);
 // UndoManager - External Undo/Redo System
 // ============================================================
 
-// Represents a single undoable operation
+// Represents a single undoable operation.
+//
+// Design Note on std::any:
+//   Using std::any for type erasure here has the following trade-offs:
+//   - Pros: Flexibility to store any state type without template complexity
+//   - Cons: Dynamic allocation overhead, RTTI usage
+//
+//   For performance-critical scenarios with known state types, consider:
+//   - Using std::variant<ObjectState, SceneMetaState> instead
+//   - Using a type-erased wrapper with small buffer optimization (SBO)
+//
+//   Current design prioritizes flexibility over absolute performance,
+//   which is acceptable for typical undo/redo use cases (user-driven, not hot path).
 struct UndoCommand {
     std::string store_id;           // Which store this affects ("__scene__" for scene store)
     std::string description;        // Human-readable description

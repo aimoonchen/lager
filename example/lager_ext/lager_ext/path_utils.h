@@ -9,47 +9,23 @@
 
 #pragma once
 
-#include "value.h"
+#include <lager_ext/value.h>
 
 namespace lager_ext {
 
-// ============================================================
-// Path Element Access
-//
-// These inline functions provide direct access to Value elements
-// by key or index, used by all lens implementations.
-// ============================================================
-
 /// Get value at a single path element (key or index)
-/// @param current The current value (should be a container)
-/// @param elem The path element (string key or size_t index)
-/// @return The accessed value, or monostate if not found
 [[nodiscard]] inline Value get_at_path_element(const Value& current, const PathElement& elem)
 {
-    return std::visit([&current](const auto& key_or_idx) -> Value {
-        using T = std::decay_t<decltype(key_or_idx)>;
-        if constexpr (std::is_same_v<T, std::string>) {
-            return current.at(key_or_idx);
-        } else {
-            return current.at(key_or_idx);
-        }
+    return std::visit([&current](const auto& key_or_idx) {
+        return current.at(key_or_idx);
     }, elem);
 }
 
 /// Set value at a single path element (key or index)
-/// @param current The current container value
-/// @param elem The path element
-/// @param new_val The new value to set
-/// @return New container with the element updated
 [[nodiscard]] inline Value set_at_path_element(const Value& current, const PathElement& elem, Value new_val)
 {
-    return std::visit([&current, &new_val](const auto& key_or_idx) -> Value {
-        using T = std::decay_t<decltype(key_or_idx)>;
-        if constexpr (std::is_same_v<T, std::string>) {
-            return current.set(key_or_idx, std::move(new_val));
-        } else {
-            return current.set(key_or_idx, std::move(new_val));
-        }
+    return std::visit([&current, &new_val](const auto& key_or_idx) {
+        return current.set(key_or_idx, std::move(new_val));
     }, elem);
 }
 
@@ -109,6 +85,121 @@ namespace lager_ext {
         return new_val;
     }
     return set_at_path_recursive(root, path, 0, std::move(new_val));
+}
+
+// ============================================================
+// Auto-Vivification Path Traversal
+//
+// These _vivify variants automatically create intermediate containers
+// (maps for string keys) when the path doesn't exist.
+// ============================================================
+
+/// Set value at a single path element with auto-vivification
+/// Creates a map if current value is null and key is string
+/// @param current The current container value (may be null)
+/// @param elem The path element
+/// @param new_val The new value to set
+/// @return New container with the element updated
+[[nodiscard]] inline Value set_at_path_element_vivify(const Value& current, const PathElement& elem, Value new_val)
+{
+    return std::visit([&current, &new_val](const auto& key_or_idx) -> Value {
+        using T = std::decay_t<decltype(key_or_idx)>;
+        if constexpr (std::is_same_v<T, std::string>) {
+            // For string keys: auto-create map if null
+            if (auto* m = current.get_if<ValueMap>()) {
+                return m->set(key_or_idx, immer::box<Value>{std::move(new_val)});
+            }
+            if (current.is_null()) {
+                // Auto-vivification: create new map
+                return ValueMap{}.set(key_or_idx, immer::box<Value>{std::move(new_val)});
+            }
+            // Not a map and not null - cannot vivify
+            return current;
+        } else {
+            // For index: auto-extend vector if needed
+            // OPTIMIZATION: Use transient mode for O(N) batch push_back
+            // (immutable push_back in loop would be O(N log N))
+            if (auto* v = current.get_if<ValueVector>()) {
+                if (key_or_idx < v->size()) {
+                    // Index within bounds, just set
+                    return v->set(key_or_idx, immer::box<Value>{std::move(new_val)});
+                }
+                // Need to extend: use transient for batch operations
+                auto trans = v->transient();
+                while (trans.size() <= key_or_idx) {
+                    trans.push_back(immer::box<Value>{});
+                }
+                trans.set(key_or_idx, immer::box<Value>{std::move(new_val)});
+                return trans.persistent();
+            }
+            if (current.is_null()) {
+                // Auto-vivification: create new vector with enough space
+                // Use transient for O(N) construction
+                auto trans = ValueVector{}.transient();
+                for (std::size_t i = 0; i < key_or_idx; ++i) {
+                    trans.push_back(immer::box<Value>{});
+                }
+                trans.push_back(immer::box<Value>{std::move(new_val)});
+                return trans.persistent();
+            }
+            return current;
+        }
+    }, elem);
+}
+
+/// Set value at a path using recursive traversal with auto-vivification
+/// @param root The root value
+/// @param path The full path
+/// @param path_index Current position in path (0 = start)
+/// @param new_val The new value to set
+/// @return New root with the update applied
+[[nodiscard]] inline Value set_at_path_recursive_vivify(
+    const Value& root,
+    const Path& path,
+    std::size_t path_index,
+    Value new_val)
+{
+    if (path_index >= path.size()) {
+        return new_val;  // Base case: replace current node
+    }
+
+    const auto& elem = path[path_index];
+    
+    // Get current child, or create appropriate container if null
+    Value current_child = get_at_path_element(root, elem);
+    
+    // If child is null and we have more path elements, prepare for vivification
+    // The actual container creation happens in set_at_path_element_vivify
+    if (current_child.is_null() && path_index + 1 < path.size()) {
+        // Check if next path element is string (need map) or index (need vector)
+        const auto& next_elem = path[path_index + 1];
+        if (std::holds_alternative<std::string>(next_elem)) {
+            current_child = Value{ValueMap{}};
+        } else {
+            current_child = Value{ValueVector{}};
+        }
+    }
+    
+    Value new_child = set_at_path_recursive_vivify(current_child, path, path_index + 1, std::move(new_val));
+    return set_at_path_element_vivify(root, elem, std::move(new_child));
+}
+
+/// Set value at a full path with auto-vivification
+/// Creates intermediate maps/vectors as needed when path doesn't exist
+/// @param root The root value
+/// @param path The path to the value
+/// @param new_val The new value to set
+/// @return New root with the update applied
+/// @example
+///   Value root{ValueMap{}};
+///   auto result = set_at_path_vivify(root, {"a", "b", "c"}, Value{100});
+///   // result: {"a": {"b": {"c": 100}}}
+[[nodiscard]] inline Value set_at_path_vivify(const Value& root, const Path& path, Value new_val)
+{
+    if (path.empty()) {
+        return new_val;
+    }
+    return set_at_path_recursive_vivify(root, path, 0, std::move(new_val));
 }
 
 // ============================================================

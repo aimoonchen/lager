@@ -18,8 +18,8 @@
 
 #pragma once
 
-#include "value.h"
-#include "lager_lens.h"
+#include <lager_ext/value.h>
+#include <lager_ext/lager_lens.h>
 #include <string_view>
 
 namespace lager_ext {

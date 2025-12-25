@@ -25,7 +25,7 @@
 
 #pragma once
 
-#include "shared_value.h"
+#include <lager_ext/shared_value.h>
 
 //==============================================================================
 // Fake Policies for FastSharedValue (Zero-overhead transient support)

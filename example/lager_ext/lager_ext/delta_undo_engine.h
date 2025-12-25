@@ -26,9 +26,10 @@
 
 #pragma once
 
-#include "value.h"
-#include "shared_state.h"
-#include "lager_lens.h"
+#include <lager_ext/scene_types.h>  // Shared types: SceneObject, SceneState, UIMeta, etc.
+#include <lager_ext/value.h>
+#include <lager_ext/shared_state.h>
+#include <lager_ext/lager_lens.h>
 
 #include <lager/store.hpp>
 #include <lager/event_loop/manual.hpp>
@@ -48,82 +49,21 @@ namespace lager_ext {
 namespace delta_undo {
 
 // ============================================================
-// Forward Declarations
+// Type Aliases from lager_ext namespace
 // ============================================================
 
-struct SceneState;
+// Re-use shared types from scene_types.h (in lager_ext namespace)
+// Aliased here for convenience within delta_undo namespace
+using lager_ext::WidgetType;
+using lager_ext::NumericRange;
+using lager_ext::ComboOptions;
+using lager_ext::PropertyMeta;
+using lager_ext::UIMeta;
+using lager_ext::SceneObject;
+using lager_ext::SceneState;
+
+// Forward declarations for types defined in this header
 struct DeltaModel;
-
-// ============================================================
-// Scene Object (same as editor_engine for compatibility)
-// ============================================================
-
-// Widget type hints for Qt UI generation
-enum class WidgetType {
-    LineEdit,
-    SpinBox,
-    DoubleSpinBox,
-    CheckBox,
-    ColorPicker,
-    Slider,
-    ComboBox,
-    Vector3Edit,
-    FileSelector,
-    ReadOnly,
-};
-
-struct NumericRange {
-    double min_value = 0.0;
-    double max_value = 100.0;
-    double step = 1.0;
-};
-
-struct ComboOptions {
-    std::vector<std::string> options;
-    int default_index = 0;
-};
-
-struct PropertyMeta {
-    std::string name;
-    std::string display_name;
-    std::string tooltip;
-    std::string category;
-    WidgetType widget_type = WidgetType::LineEdit;
-    std::optional<NumericRange> range;
-    std::optional<ComboOptions> combo_options;
-    bool read_only = false;
-    bool visible = true;
-    int sort_order = 0;
-};
-
-struct UIMeta {
-    std::string type_name;
-    std::string icon_name;
-    std::vector<PropertyMeta> properties;
-
-    [[nodiscard]] const PropertyMeta* find_property(const std::string& name) const {
-        for (const auto& prop : properties) {
-            if (prop.name == name) return &prop;
-        }
-        return nullptr;
-    }
-};
-
-struct SceneObject {
-    std::string id;
-    std::string type;
-    Value data;
-    UIMeta meta;
-    std::vector<std::string> children;
-};
-
-// Complete scene state
-struct SceneState {
-    immer::map<std::string, SceneObject> objects;
-    std::string root_id;
-    std::string selected_id;
-    uint64_t version = 0;
-};
 
 // ============================================================
 // Delta (Reversible Operation) - Core concept

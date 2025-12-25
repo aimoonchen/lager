@@ -1,7 +1,7 @@
 // multi_store_engine.cpp
 // Implementation of Multi-Store Architecture with External UndoManager
 
-#include "multi_store_engine.h"
+#include <lager_ext/multi_store_engine.h>
 
 #include <algorithm>
 #include <chrono>

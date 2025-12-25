@@ -4,7 +4,7 @@
 // This file demonstrates zero-overhead path-based lens access
 // for data structures known at compile time.
 
-#include "static_path.h"
+#include <lager_ext/static_path.h>
 #include <iostream>
 #include <iomanip>
 

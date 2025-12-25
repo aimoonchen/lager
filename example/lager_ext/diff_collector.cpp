@@ -1,39 +1,56 @@
 // diff_collector.cpp
-// Implementation of RecursiveDiffCollector and diff demos
+// Implementation of DiffCollector and diff demos
 
-#include "diff_collector.h"
+#include <lager_ext/diff_collector.h>
 #include <immer/algorithm.hpp>
 #include <iostream>
 
 namespace lager_ext {
 
 // ============================================================
-// RecursiveDiffCollector implementation
+// DiffCollector implementation
 // ============================================================
 
-void RecursiveDiffCollector::diff(const Value& old_val, const Value& new_val)
+void DiffCollector::diff(const Value& old_val, const Value& new_val, bool recursive)
 {
     diffs_.clear();
+    recursive_ = recursive;
+
+    // Fast path: if both Values share the same variant storage, no changes
+    // This handles the case where the same Value object is compared to itself
+    if (&old_val.data == &new_val.data) {
+        return;
+    }
+
+    // Pre-allocate to reduce reallocations during diff collection
+    diffs_.reserve(32);
+
     Path root_path;
+    root_path.reserve(16);  // Pre-allocate for typical nesting depth
     diff_value(old_val, new_val, root_path);
+
+    // Shrink to fit if we over-allocated significantly
+    if (diffs_.size() > 0 && diffs_.capacity() > diffs_.size() * 2) {
+        diffs_.shrink_to_fit();
+    }
 }
 
-const std::vector<DiffEntry>& RecursiveDiffCollector::get_diffs() const
+const std::vector<DiffEntry>& DiffCollector::get_diffs() const
 {
     return diffs_;
 }
 
-void RecursiveDiffCollector::clear()
+void DiffCollector::clear()
 {
     diffs_.clear();
 }
 
-bool RecursiveDiffCollector::has_changes() const
+bool DiffCollector::has_changes() const
 {
     return !diffs_.empty();
 }
 
-void RecursiveDiffCollector::print_diffs() const
+void DiffCollector::print_diffs() const
 {
     if (diffs_.empty()) {
         std::cout << "  (no changes)\n";
@@ -48,22 +65,28 @@ void RecursiveDiffCollector::print_diffs() const
         }
         std::cout << "  " << type_str << " " << path_to_string(d.path);
         if (d.type == DiffEntry::Type::Change) {
-            std::cout << ": " << d.old_value << " -> " << d.new_value;
+            std::cout << ": " << value_to_string(d.old_value) << " -> " << value_to_string(d.new_value);
         } else if (d.type == DiffEntry::Type::Add) {
-            std::cout << ": " << d.new_value;
+            std::cout << ": " << value_to_string(d.new_value);
         } else {
-            std::cout << ": " << d.old_value;
+            std::cout << ": " << value_to_string(d.old_value);
         }
         std::cout << "\n";
     }
 }
 
-void RecursiveDiffCollector::diff_value(const Value& old_val, const Value& new_val, Path& current_path)
+void DiffCollector::diff_value(const Value& old_val, const Value& new_val, Path& current_path)
 {
+    // NOTE: This function is recursive. For extremely deeply nested data structures,
+    // consider implementing an iterative version with an explicit stack to avoid
+    // stack overflow. Typical use cases with nesting depth < 100 should be safe.
+    // For deeply nested data (e.g., > 1000 levels), an iterative approach is recommended.
+
     // Fast path: if types differ, record as Change
-    if (old_val.data.index() != new_val.data.index()) [[unlikely]] {
-        diffs_.push_back({DiffEntry::Type::Change, current_path,
-                          value_to_string(old_val), value_to_string(new_val)});
+    const auto old_index = old_val.data.index();
+    const auto new_index = new_val.data.index();
+    if (old_index != new_index) [[unlikely]] {
+        diffs_.emplace_back(DiffEntry::Type::Change, current_path, old_val, new_val);
         return;
     }
 
@@ -71,28 +94,51 @@ void RecursiveDiffCollector::diff_value(const Value& old_val, const Value& new_v
         using T = std::decay_t<decltype(old_arg)>;
 
         if constexpr (std::is_same_v<T, ValueMap>) {
-            const auto& new_map = *new_val.get_if<ValueMap>();
+            // We already verified indices match, so this is safe
+            const auto& new_map = std::get<ValueMap>(new_val.data);
+            // OPTIMIZATION: immer container identity check - O(1)
+            // If the underlying immer::map shares the same root, skip entirely
+            if (old_arg.impl().root == new_map.impl().root &&
+                old_arg.impl().size == new_map.impl().size) [[likely]] {
+                return;
+            }
+            // Shallow mode: report container change without recursing
+            if (!recursive_) {
+                diffs_.emplace_back(DiffEntry::Type::Change, current_path, old_val, new_val);
+                return;
+            }
             diff_map(old_arg, new_map, current_path);
         }
         else if constexpr (std::is_same_v<T, ValueVector>) {
-            const auto& new_vec = *new_val.get_if<ValueVector>();
+            const auto& new_vec = std::get<ValueVector>(new_val.data);
+            // OPTIMIZATION: immer container identity check - O(1)
+            // If the underlying immer::flex_vector shares the same root, skip entirely
+            if (old_arg.impl().root == new_vec.impl().root &&
+                old_arg.impl().tail == new_vec.impl().tail &&
+                old_arg.impl().size == new_vec.impl().size) [[likely]] {
+                return;
+            }
+            // Shallow mode: report container change without recursing
+            if (!recursive_) {
+                diffs_.emplace_back(DiffEntry::Type::Change, current_path, old_val, new_val);
+                return;
+            }
             diff_vector(old_arg, new_vec, current_path);
         }
         else if constexpr (std::is_same_v<T, std::monostate>) {
             // Both null, no change
         }
         else {
-            // Primitive types: direct comparison
+            // Primitive types: direct comparison (already verified same type)
             const auto& new_arg = std::get<T>(new_val.data);
             if (old_arg != new_arg) {
-                diffs_.push_back({DiffEntry::Type::Change, current_path,
-                                  value_to_string(old_val), value_to_string(new_val)});
+                diffs_.emplace_back(DiffEntry::Type::Change, current_path, old_val, new_val);
             }
         }
     }, old_val.data);
 }
 
-void RecursiveDiffCollector::diff_map(const ValueMap& old_map, const ValueMap& new_map, Path& current_path)
+void DiffCollector::diff_map(const ValueMap& old_map, const ValueMap& new_map, Path& current_path)
 {
     // OPTIMIZED: Use push_back/pop_back pattern to avoid Path copying
     auto map_differ = immer::make_differ(
@@ -124,7 +170,7 @@ void RecursiveDiffCollector::diff_map(const ValueMap& old_map, const ValueMap& n
     immer::diff(old_map, new_map, map_differ);
 }
 
-void RecursiveDiffCollector::diff_vector(const ValueVector& old_vec, const ValueVector& new_vec, Path& current_path)
+void DiffCollector::diff_vector(const ValueVector& old_vec, const ValueVector& new_vec, Path& current_path)
 {
     const size_t old_size = old_vec.size();
     const size_t new_size = new_vec.size();
@@ -161,11 +207,23 @@ void RecursiveDiffCollector::diff_vector(const ValueVector& old_vec, const Value
     }
 }
 
-// Helper: Recursively collect entries for add/remove operations
-// OPTIMIZED: Use push_back/pop_back pattern to avoid Path copying
+// Helper: Collect entries for add/remove operations
+// In recursive mode: recursively collect all nested entries
+// In shallow mode: only report the container itself
 // is_add: true for added entries, false for removed entries
-void RecursiveDiffCollector::collect_entries(const Value& val, Path& current_path, bool is_add)
+void DiffCollector::collect_entries(const Value& val, Path& current_path, bool is_add)
 {
+    // In shallow mode, just record the value at current path (no recursion)
+    if (!recursive_) {
+        if (is_add) {
+            diffs_.emplace_back(DiffEntry::Type::Add, current_path, Value{}, val);
+        } else {
+            diffs_.emplace_back(DiffEntry::Type::Remove, current_path, val, Value{});
+        }
+        return;
+    }
+
+    // Recursive mode: descend into containers
     std::visit([&](const auto& arg) {
         using T = std::decay_t<decltype(arg)>;
         if constexpr (std::is_same_v<T, ValueMap>) {
@@ -183,26 +241,170 @@ void RecursiveDiffCollector::collect_entries(const Value& val, Path& current_pat
             }
         }
         else if constexpr (!std::is_same_v<T, std::monostate>) {
+            // Leaf value: record it
             if (is_add) {
-                diffs_.push_back({DiffEntry::Type::Add, current_path,
-                                  "", value_to_string(val)});
+                diffs_.emplace_back(DiffEntry::Type::Add, current_path, Value{}, val);
             } else {
-                diffs_.push_back({DiffEntry::Type::Remove, current_path,
-                                  value_to_string(val), ""});
+                diffs_.emplace_back(DiffEntry::Type::Remove, current_path, val, Value{});
             }
         }
     }, val.data);
 }
 
-void RecursiveDiffCollector::collect_removed(const Value& val, Path& current_path)
+void DiffCollector::collect_removed(const Value& val, Path& current_path)
 {
     collect_entries(val, current_path, false);
 }
 
-void RecursiveDiffCollector::collect_added(const Value& val, Path& current_path)
+void DiffCollector::collect_added(const Value& val, Path& current_path)
 {
     collect_entries(val, current_path, true);
 }
+
+// ============================================================
+// Quick change detection (early exit optimization)
+// ============================================================
+
+bool has_any_difference(const Value& old_val, const Value& new_val, bool recursive)
+{
+    // Fast path: same object
+    if (&old_val.data == &new_val.data) {
+        return false;
+    }
+    return detail::values_differ(old_val, new_val, recursive);
+}
+
+namespace detail {
+
+bool values_differ(const Value& old_val, const Value& new_val, bool recursive)
+{
+    // Fast path: different types
+    const auto old_index = old_val.data.index();
+    const auto new_index = new_val.data.index();
+    if (old_index != new_index) [[unlikely]] {
+        return true;
+    }
+
+    return std::visit([&](const auto& old_arg) -> bool {
+        using T = std::decay_t<decltype(old_arg)>;
+
+        if constexpr (std::is_same_v<T, ValueMap>) {
+            const auto& new_map = std::get<ValueMap>(new_val.data);
+            // O(1) identity check
+            if (old_arg.impl().root == new_map.impl().root &&
+                old_arg.impl().size == new_map.impl().size) [[likely]] {
+                return false;
+            }
+            // Shallow mode: identity check failed, containers are different
+            if (!recursive) {
+                return true;
+            }
+            return maps_differ(old_arg, new_map, recursive);
+        }
+        else if constexpr (std::is_same_v<T, ValueVector>) {
+            const auto& new_vec = std::get<ValueVector>(new_val.data);
+            // O(1) identity check
+            if (old_arg.impl().root == new_vec.impl().root &&
+                old_arg.impl().tail == new_vec.impl().tail &&
+                old_arg.impl().size == new_vec.impl().size) [[likely]] {
+                return false;
+            }
+            // Shallow mode: identity check failed, containers are different
+            if (!recursive) {
+                return true;
+            }
+            return vectors_differ(old_arg, new_vec, recursive);
+        }
+        else if constexpr (std::is_same_v<T, std::monostate>) {
+            return false;  // Both null
+        }
+        else {
+            // Primitive types: direct comparison
+            const auto& new_arg = std::get<T>(new_val.data);
+            return old_arg != new_arg;
+        }
+    }, old_val.data);
+}
+
+bool maps_differ(const ValueMap& old_map, const ValueMap& new_map, bool recursive)
+{
+    // Quick size check
+    if (old_map.size() != new_map.size()) {
+        return true;
+    }
+
+    // Use immer::diff with early exit
+    bool found_difference = false;
+
+    auto differ = immer::make_differ(
+        // added - any addition means difference
+        [&](const std::pair<const std::string, ValueBox>&) {
+            found_difference = true;
+        },
+        // removed - any removal means difference
+        [&](const std::pair<const std::string, ValueBox>&) {
+            found_difference = true;
+        },
+        // retained - check if values differ
+        [&](const std::pair<const std::string, ValueBox>& old_kv,
+            const std::pair<const std::string, ValueBox>& new_kv) {
+            if (found_difference) return;  // Already found, skip
+
+            // O(1) pointer check
+            if (old_kv.second.get() == new_kv.second.get()) [[likely]] {
+                return;
+            }
+            // Shallow mode: pointer differs, that's enough
+            if (!recursive) {
+                found_difference = true;
+                return;
+            }
+            // Recurse
+            if (values_differ(*old_kv.second, *new_kv.second, recursive)) {
+                found_difference = true;
+            }
+        }
+    );
+
+    immer::diff(old_map, new_map, differ);
+    return found_difference;
+}
+
+bool vectors_differ(const ValueVector& old_vec, const ValueVector& new_vec, bool recursive)
+{
+    const size_t old_size = old_vec.size();
+    const size_t new_size = new_vec.size();
+
+    // Size difference means there's a change
+    if (old_size != new_size) {
+        return true;
+    }
+
+    // Check each element (early exit on first difference)
+    for (size_t i = 0; i < old_size; ++i) {
+        const auto& old_box = old_vec[i];
+        const auto& new_box = new_vec[i];
+
+        // O(1) pointer check
+        if (old_box.get() == new_box.get()) [[likely]] {
+            continue;
+        }
+
+        // Shallow mode: pointer differs, that's enough
+        if (!recursive) {
+            return true;
+        }
+
+        // Recurse - early exit if different
+        if (values_differ(*old_box, *new_box, recursive)) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+} // namespace detail
 
 // ============================================================
 // Demo: immer::diff basic usage
@@ -306,12 +508,12 @@ void demo_immer_diff()
 }
 
 // ============================================================
-// Demo: Recursive diff collection
+// Demo: DiffCollector usage
 // ============================================================
 
 void demo_recursive_diff_collector()
 {
-    std::cout << "\n=== RecursiveDiffCollector Demo ===\n\n";
+    std::cout << "\n=== DiffCollector Demo ===\n\n";
 
     // Create old state
     ValueMap user1;
@@ -360,13 +562,26 @@ void demo_recursive_diff_collector()
     std::cout << "\n--- New State ---\n";
     print_value(new_state, "", 1);
 
-    // Collect diffs
-    std::cout << "\n--- Diff Results ---\n";
-    RecursiveDiffCollector collector;
-    collector.diff(old_state, new_state);
+    // Collect diffs (recursive mode - default)
+    std::cout << "\n--- Recursive Diff Results ---\n";
+    DiffCollector collector;
+    collector.diff(old_state, new_state);  // recursive = true (default)
     collector.print_diffs();
-
     std::cout << "\nDetected " << collector.get_diffs().size() << " change(s)\n";
+
+    // Collect diffs (shallow mode)
+    std::cout << "\n--- Shallow Diff Results ---\n";
+    collector.diff(old_state, new_state, false);  // recursive = false
+    collector.print_diffs();
+    std::cout << "\nDetected " << collector.get_diffs().size() << " change(s)\n";
+
+    // Quick check using has_any_difference
+    std::cout << "\n--- Quick Difference Check ---\n";
+    std::cout << "has_any_difference (recursive): " 
+              << (has_any_difference(old_state, new_state) ? "true" : "false") << "\n";
+    std::cout << "has_any_difference (shallow):   " 
+              << (has_any_difference(old_state, new_state, false) ? "true" : "false") << "\n";
+
     std::cout << "\n=== Demo End ===\n\n";
 }
 

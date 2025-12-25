@@ -5,11 +5,12 @@
 // functions are implemented in value.h. This file only contains
 // implementations for non-template utility functions and serialization.
 
-#include "value.h"
+#include <lager_ext/value.h>
 
 // Transient headers (for batch construction during deserialization)
 #include <immer/map_transient.hpp>
 #include <immer/vector_transient.hpp>
+#include <immer/array_transient.hpp>
 #include <immer/table_transient.hpp>
 
 #include <cstring>  // for std::memcpy
@@ -275,9 +276,10 @@ public:
 
     void write_string(const std::string& s) {
         write_u32(static_cast<uint32_t>(s.size()));
-        for (char c : s) {
-            buffer.push_back(static_cast<uint8_t>(c));
-        }
+        // OPTIMIZATION: Use resize + memcpy instead of per-byte push_back
+        std::size_t old_size = buffer.size();
+        buffer.resize(old_size + s.size());
+        std::memcpy(buffer.data() + old_size, s.data(), s.size());
     }
 
     template<std::size_t N>
@@ -489,14 +491,18 @@ Value deserialize_value(ByteReader& r) {
 
         case TypeTag::Array: {
             // Deserialize as immer::array to preserve type information
-            // Build array by pushing back elements one by one
+            // Note: immer::array's transient may not work with custom MemoryPolicy,
+            // so we use std::vector + range constructor for O(n) construction.
             uint32_t count = r.read_u32();
-            ValueArray arr;
+            std::vector<ValueBox> temp;
+            temp.reserve(count);
             for (uint32_t i = 0; i < count; ++i) {
                 Value val = deserialize_value(r);
-                arr = arr.push_back(ValueBox{std::move(val)});
+                temp.emplace_back(std::move(val));
             }
-            return Value{arr};
+            // Construct immer::array using move iterators for efficiency
+            return Value{ValueArray(std::make_move_iterator(temp.begin()),
+                                    std::make_move_iterator(temp.end()))};
         }
 
         case TypeTag::Table: {
@@ -776,28 +782,34 @@ std::size_t serialize_to(const Value& val, uint8_t* buffer, std::size_t buffer_s
 namespace {
 
 // JSON escape special characters in strings
+// OPTIMIZATION: Use string::reserve + append instead of ostringstream for better performance
 std::string json_escape_string(const std::string& s) {
-    std::ostringstream oss;
+    std::string result;
+    // Pre-allocate with some extra space for potential escapes
+    result.reserve(s.size() + 16);
+
     for (char c : s) {
         switch (c) {
-            case '"':  oss << "\\\""; break;
-            case '\\': oss << "\\\\"; break;
-            case '\b': oss << "\\b"; break;
-            case '\f': oss << "\\f"; break;
-            case '\n': oss << "\\n"; break;
-            case '\r': oss << "\\r"; break;
-            case '\t': oss << "\\t"; break;
+            case '"':  result += "\\\""; break;
+            case '\\': result += "\\\\"; break;
+            case '\b': result += "\\b"; break;
+            case '\f': result += "\\f"; break;
+            case '\n': result += "\\n"; break;
+            case '\r': result += "\\r"; break;
+            case '\t': result += "\\t"; break;
             default:
                 if (static_cast<unsigned char>(c) < 0x20) {
                     // Control characters as \uXXXX
-                    oss << "\\u" << std::hex << std::setfill('0') << std::setw(4)
-                        << static_cast<int>(static_cast<unsigned char>(c));
+                    char buf[7];
+                    std::snprintf(buf, sizeof(buf), "\\u%04x",
+                                  static_cast<unsigned int>(static_cast<unsigned char>(c)));
+                    result += buf;
                 } else {
-                    oss << c;
+                    result += c;
                 }
         }
     }
-    return oss.str();
+    return result;
 }
 
 // Forward declaration

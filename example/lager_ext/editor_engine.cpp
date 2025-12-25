@@ -1,8 +1,8 @@
 // editor_engine.cpp
 // Implementation of Editor-Engine Cross-Process State Management
 
-#include "editor_engine.h"
-#include "path_utils.h"
+#include <lager_ext/editor_engine.h>
+#include <lager_ext/path_utils.h>
 #include <iostream>
 #include <sstream>
 

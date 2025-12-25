@@ -1,8 +1,8 @@
 // erased_lens.cpp
 // Implementation of custom type-erased lens (Scheme 1)
 
-#include "erased_lens.h"
-#include "path_utils.h"
+#include <lager_ext/erased_lens.h>
+#include <lager_ext/path_utils.h>
 #include <iostream>
 
 namespace lager_ext {
@@ -69,20 +69,15 @@ ErasedLens make_key_lens(const std::string& key)
             }
             return Value{};
         },
-        // Setter
+        // Setter (strict mode)
+        // Note: For auto-vivification, use set_at_path_vivify() from path_utils.h
         [key](Value obj, Value value) -> Value {
             if (auto* m = obj.get_if<ValueMap>()) {
                 return Value{m->set(key, immer::box<Value>{std::move(value)})};
             }
-#ifdef lager_ext_AUTO_VIVIFICATION
-            // Auto-vivification: create new map
-            ValueMap new_map;
-            return Value{new_map.set(key, immer::box<Value>{std::move(value)})};
-#else
             // Strict mode: log error and return unchanged
             std::cerr << "[make_key_lens] Not a map, cannot set key: " << key << "\n";
             return obj;
-#endif
         }};
 }
 
@@ -97,27 +92,17 @@ ErasedLens make_index_lens(std::size_t index)
             }
             return Value{};
         },
-        // Setter
+        // Setter (strict mode)
+        // Note: For auto-vivification, use set_at_path_vivify() from path_utils.h
         [index](Value obj, Value value) -> Value {
             if (auto* v = obj.get_if<ValueVector>()) {
-                auto vec = *v;
-                while (vec.size() <= index) {
-                    vec = vec.push_back(immer::box<Value>{Value{}});
+                if (index < v->size()) {
+                    return Value{v->set(index, immer::box<Value>{std::move(value)})};
                 }
-                return Value{vec.set(index, immer::box<Value>{std::move(value)})};
             }
-#ifdef lager_ext_AUTO_VIVIFICATION
-            // Auto-vivification: create new vector
-            ValueVector new_vec;
-            while (new_vec.size() <= index) {
-                new_vec = new_vec.push_back(immer::box<Value>{Value{}});
-            }
-            return Value{new_vec.set(index, immer::box<Value>{std::move(value)})};
-#else
             // Strict mode: log error and return unchanged
-            std::cerr << "[make_index_lens] Not a vector, cannot set index: " << index << "\n";
+            std::cerr << "[make_index_lens] Not a vector or index out of range: " << index << "\n";
             return obj;
-#endif
         }};
 }
 

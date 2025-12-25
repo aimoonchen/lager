@@ -1,7 +1,7 @@
 // at_lens.cpp
 // Implementation of lager::lenses::at demo (Scheme 3)
 
-#include "at_lens.h"
+#include <lager_ext/at_lens.h>
 #include <lager/lenses/at.hpp>
 #include <iostream>
 

@@ -9,7 +9,7 @@
 
 #pragma once
 
-#include "value.h"
+#include <lager_ext/value.h>
 #include <functional>
 
 namespace lager_ext {

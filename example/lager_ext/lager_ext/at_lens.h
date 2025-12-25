@@ -13,7 +13,7 @@
 
 #pragma once
 
-#include "value.h"
+#include <lager_ext/value.h>
 #include <lager/lenses.hpp>
 
 namespace lager_ext {

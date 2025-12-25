@@ -109,7 +109,7 @@ endif()
 # ===========
 
 # Qt6 configuration
-set(Qt6_DIR "D:/QT/6.8.1/msvc2022_64/lib/cmake/Qt6" CACHE PATH "Qt6 cmake directory")
+set(Qt6_DIR "D:/QT/6.10.1/msvc2022_64/lib/cmake/Qt6" CACHE PATH "Qt6 cmake directory")
 
 find_package(Qt6 COMPONENTS Core Concurrent Qml Gui Widgets QuickControls2 QUIET)
 

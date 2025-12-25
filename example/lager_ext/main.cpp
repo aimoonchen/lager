@@ -12,15 +12,15 @@
 //
 // All schemes work with the same Value type defined in value.h
 
-#include "value.h"
-#include "erased_lens.h"
-#include "lager_lens.h"
-#include "at_lens.h"
-#include "json_pointer.h"
-#include "static_path.h"
-#include "diff_collector.h"
-#include "shared_state.h"
-#include "editor_engine.h"
+#include <lager_ext/value.h>
+#include <lager_ext/erased_lens.h>
+#include <lager_ext/lager_lens.h>
+#include <lager_ext/at_lens.h>
+#include <lager_ext/json_pointer.h>
+#include <lager_ext/static_path.h>
+#include <lager_ext/diff_collector.h>
+#include <lager_ext/shared_state.h>
+#include <lager_ext/editor_engine.h>
 
 #include <lager/store.hpp>
 #include <lager/event_loop/manual.hpp>
@@ -64,8 +64,8 @@ struct AppState
 AppState create_initial_state()
 {
     auto item1 = Value{
-        ValueMap{{"title", immer::box<Value>{Value{std::string{"Task 1"}}}},
-                 {"done", immer::box<Value>{Value{false}}}}};
+        ValueMap{{"title", immer::box<Value>{"Task 1"}},
+                 {"done", immer::box<Value>{false}}}};
 
     auto items = Value{ValueVector{immer::box<Value>{std::move(item1)}}};
 
@@ -125,9 +125,9 @@ AppState reducer(AppState state, Action action)
                 auto current_items = items_lens.get(new_state.data);
 
                 if (auto* vec = current_items.get_if<ValueVector>()) {
-                    auto new_item = Value{
-                        ValueMap{{"title", immer::box<Value>{Value{act.text}}},
-                                 {"done", immer::box<Value>{Value{false}}}}};
+                auto new_item = Value{
+                    ValueMap{{"title", immer::box<Value>{act.text}},
+                             {"done", immer::box<Value>{false}}}};
 
                     auto new_vec = vec->push_back(immer::box<Value>{std::move(new_item)});
                     new_state.data = items_lens.set(new_state.data, Value{std::move(new_vec)});

@@ -9,9 +9,9 @@
 // Must be defined before Windows.h to prevent min/max macro conflicts
 #define NOMINMAX
 
-#include "shared_value.h"
-#include "fast_shared_value.h"
-#include "value.h"
+#include <lager_ext/shared_value.h>
+#include <lager_ext/fast_shared_value.h>
+#include <lager_ext/value.h>
 
 #include <chrono>
 #include <iostream>

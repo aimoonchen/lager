@@ -16,9 +16,10 @@
 
 #pragma once
 
-#include "value.h"
-#include "shared_state.h"
-#include "lager_lens.h"
+#include <lager_ext/scene_types.h>  // Shared types: SceneObject, SceneState, UIMeta, etc.
+#include <lager_ext/value.h>
+#include <lager_ext/shared_state.h>
+#include <lager_ext/lager_lens.h>
 
 #include <lager/store.hpp>
 #include <lager/event_loop/manual.hpp>
@@ -39,91 +40,8 @@
 
 namespace lager_ext {
 
-// ============================================================
-// UI Metadata - Information for generating Qt UI widgets
-// ============================================================
-
-// Widget type hints for Qt UI generation
-enum class WidgetType {
-    LineEdit,       // QString, single line text
-    SpinBox,        // int
-    DoubleSpinBox,  // float/double
-    CheckBox,       // bool
-    ColorPicker,    // color (stored as int or string)
-    Slider,         // int/float with range
-    ComboBox,       // enum or string selection
-    Vector3Edit,    // 3D vector (x, y, z)
-    FileSelector,   // file path
-    ReadOnly,       // display only, not editable
-};
-
-// Range constraint for numeric values
-struct NumericRange {
-    double min_value = 0.0;
-    double max_value = 100.0;
-    double step = 1.0;
-};
-
-// Combo box options
-struct ComboOptions {
-    std::vector<std::string> options;
-    int default_index = 0;
-};
-
-// Property UI metadata
-struct PropertyMeta {
-    std::string name;           // Property name (key in Value map)
-    std::string display_name;   // Human-readable name for UI
-    std::string tooltip;        // Tooltip text
-    std::string category;       // Category for grouping in property editor
-    WidgetType widget_type = WidgetType::LineEdit;
-
-    // Optional constraints
-    std::optional<NumericRange> range;
-    std::optional<ComboOptions> combo_options;
-
-    bool read_only = false;
-    bool visible = true;
-    int sort_order = 0;         // For ordering in UI
-};
-
-// UI metadata for scene objects (collection of property metadata)
-// Used to generate Qt property editor widgets
-struct UIMeta {
-    std::string type_name;      // Object type (e.g., "Transform", "Light")
-    std::string icon_name;      // Icon for tree view
-    std::vector<PropertyMeta> properties;
-
-    // Find property meta by name
-    [[nodiscard]] const PropertyMeta* find_property(const std::string& name) const {
-        for (const auto& prop : properties) {
-            if (prop.name == name) return &prop;
-        }
-        return nullptr;
-    }
-};
-
-// ============================================================
-// Scene Object Structure
-// ============================================================
-
-// Scene object with value data and metadata
-struct SceneObject {
-    std::string id;             // Unique object ID
-    std::string type;           // Object type name
-    Value data;                 // Object properties as Value
-    UIMeta meta;                // UI metadata for Qt binding
-
-    std::vector<std::string> children;  // Child object IDs
-};
-
-// Complete scene state - using immer::map for structural sharing benefits
-struct SceneState {
-    immer::map<std::string, SceneObject> objects;  // All objects by ID (immutable)
-    std::string root_id;                            // Root object ID
-    std::string selected_id;                        // Currently selected object
-    uint64_t version = 0;                           // State version
-};
+// Note: WidgetType, NumericRange, ComboOptions, PropertyMeta, UIMeta,
+// SceneObject, and SceneState are now defined in scene_types.h
 
 // ============================================================
 // Action Category - Distinguish user operations from system operations

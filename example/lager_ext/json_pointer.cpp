@@ -1,7 +1,7 @@
 // json_pointer.cpp
 // Implementation of JSON Pointer (RFC 6901) API (Scheme 4)
 
-#include "json_pointer.h"
+#include <lager_ext/json_pointer.h>
 #include <cctype>
 #include <iostream>
 #include <ranges>
@@ -167,35 +167,35 @@ void demo_json_pointer()
 
     // Build inner structures first
     ValueVector alice_tags;
-    alice_tags = alice_tags.push_back(immer::box<Value>{Value{std::string{"c++"}}});
-    alice_tags = alice_tags.push_back(immer::box<Value>{Value{std::string{"rust"}}});
+    alice_tags = alice_tags.push_back(immer::box<Value>{"c++"});
+    alice_tags = alice_tags.push_back(immer::box<Value>{"rust"});
 
     ValueMap alice_profile;
-    alice_profile = alice_profile.set("city", immer::box<Value>{Value{std::string{"Beijing"}}});
-    alice_profile = alice_profile.set("tags/skills", immer::box<Value>{Value{alice_tags}});  // key with '/'
+    alice_profile = alice_profile.set("city", immer::box<Value>{"Beijing"});
+    alice_profile = alice_profile.set("tags/skills", immer::box<Value>{alice_tags});  // key with '/'
 
     ValueMap alice;
-    alice = alice.set("name", immer::box<Value>{Value{std::string{"Alice"}}});
-    alice = alice.set("profile", immer::box<Value>{Value{alice_profile}});
+    alice = alice.set("name", immer::box<Value>{"Alice"});
+    alice = alice.set("profile", immer::box<Value>{alice_profile});
 
     ValueMap bob_profile;
-    bob_profile = bob_profile.set("city", immer::box<Value>{Value{std::string{"Shanghai"}}});
+    bob_profile = bob_profile.set("city", immer::box<Value>{"Shanghai"});
 
     ValueMap bob;
-    bob = bob.set("name", immer::box<Value>{Value{std::string{"Bob"}}});
-    bob = bob.set("profile", immer::box<Value>{Value{bob_profile}});
+    bob = bob.set("name", immer::box<Value>{"Bob"});
+    bob = bob.set("profile", immer::box<Value>{bob_profile});
 
     ValueVector users;
-    users = users.push_back(immer::box<Value>{Value{alice}});
-    users = users.push_back(immer::box<Value>{Value{bob}});
+    users = users.push_back(immer::box<Value>{alice});
+    users = users.push_back(immer::box<Value>{bob});
 
     ValueMap config;
-    config = config.set("version", immer::box<Value>{Value{1}});
-    config = config.set("theme~mode", immer::box<Value>{Value{std::string{"dark"}}});  // key with '~'
+    config = config.set("version", immer::box<Value>{1});
+    config = config.set("theme~mode", immer::box<Value>{"dark"});  // key with '~'
 
     ValueMap root;
-    root = root.set("users", immer::box<Value>{Value{users}});
-    root = root.set("config", immer::box<Value>{Value{config}});
+    root = root.set("users", immer::box<Value>{users});
+    root = root.set("config", immer::box<Value>{config});
 
     Value data{root};
 

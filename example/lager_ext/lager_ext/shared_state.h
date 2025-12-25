@@ -19,8 +19,8 @@
 
 #pragma once
 
-#include "value.h"
-#include "diff_collector.h"
+#include <lager_ext/value.h>
+#include <lager_ext/diff_collector.h>
 
 #include <functional>
 #include <memory>

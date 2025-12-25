@@ -30,7 +30,7 @@
 
 #pragma once
 
-#include "value.h"
+#include <lager_ext/value.h>
 
 // Transient headers (deep_copy functions use transient for optimization)
 #include <immer/map_transient.hpp>

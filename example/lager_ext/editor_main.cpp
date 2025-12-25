@@ -7,8 +7,8 @@
 // - EDITOR_USE_QML=0 or undefined : Use Qt Widgets interface
 // - EDITOR_HAS_QML : Automatically defined by CMake when QML support is available
 
-#include "editor_engine.h"
-#include "value.h"
+#include <lager_ext/editor_engine.h>
+#include <lager_ext/value.h>
 
 #include <lager/store.hpp>
 

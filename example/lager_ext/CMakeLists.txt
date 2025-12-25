@@ -27,7 +27,7 @@ set(IMMER_INCLUDE_DIR "${LAGER_INCLUDE_DIR}/third_party/immer" CACHE PATH "Immer
 set(ZUG_INCLUDE_DIR "${LAGER_INCLUDE_DIR}/third_party/zug" CACHE PATH "Zug include directory")
 
 # Qt6 configuration - Update this path to your Qt6 installation
-set(Qt6_DIR "D:/QT/6.8.1/msvc2022_64/lib/cmake/Qt6" CACHE PATH "Qt6 cmake directory")
+set(Qt6_DIR "D:/QT/6.10.1/msvc2022_64/lib/cmake/Qt6" CACHE PATH "Qt6 cmake directory")
 
 set(SDL2_DIR "D:/Github/vcpkg/installed/x64-windows/share/sdl2" CACHE PATH "SDL2 cmake directory")
 
@@ -74,18 +74,21 @@ set(lager_ext_LIB_SOURCES
 )
 
 set(lager_ext_LIB_HEADERS
-    value.h
-    erased_lens.h
-    lager_lens.h
-    at_lens.h
-    json_pointer.h
-    static_path.h
-    diff_collector.h
-    shared_state.h
-    shared_value.h
-    editor_engine.h
-    multi_store_engine.h
-    delta_undo_engine.h
+    lager_ext/value.h
+    lager_ext/scene_types.h
+    lager_ext/erased_lens.h
+    lager_ext/lager_lens.h
+    lager_ext/at_lens.h
+    lager_ext/json_pointer.h
+    lager_ext/static_path.h
+    lager_ext/path_utils.h
+    lager_ext/diff_collector.h
+    lager_ext/shared_state.h
+    lager_ext/shared_value.h
+    lager_ext/fast_shared_value.h
+    lager_ext/editor_engine.h
+    lager_ext/multi_store_engine.h
+    lager_ext/delta_undo_engine.h
 )
 
 add_library(lager_ext STATIC ${lager_ext_LIB_SOURCES} ${lager_ext_LIB_HEADERS})

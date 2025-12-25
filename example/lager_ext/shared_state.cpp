@@ -3,8 +3,8 @@
 //
 // This implementation uses Boost.Interprocess for cross-platform shared memory
 
-#include "shared_state.h"
-#include "path_utils.h"
+#include <lager_ext/shared_state.h>
+#include <lager_ext/path_utils.h>
 
 #include <boost/interprocess/shared_memory_object.hpp>
 #include <boost/interprocess/mapped_region.hpp>

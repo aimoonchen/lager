@@ -1,8 +1,8 @@
 // lager_lens.cpp
 // Implementation of lager::lens<Value, Value> scheme (Scheme 2)
 
-#include "lager_lens.h"
-#include "path_utils.h"
+#include <lager_ext/lager_lens.h>
+#include <lager_ext/path_utils.h>
 #include <zug/compose.hpp>
 #include <iostream>
 #include <unordered_map>
@@ -14,19 +14,9 @@
 
 namespace lager_ext {
 
-// ============================================================
-// LRU Cache for path lens (Optimized with Read-Write Lock)
-//
-// Optimization Strategy:
-// 1. Use shared_mutex for read-write lock separation
-// 2. Use atomic counters for statistics (lock-free)
-// 3. Defer LRU order updates to reduce write lock contention
-// 4. Batch LRU updates on write operations
-// ============================================================
-
 namespace {
 
-// Hash function for Path (with pre-computation support)
+// Hash function for Path
 struct PathHash {
     std::size_t operator()(const Path& path) const {
         std::size_t hash = 0;
@@ -313,22 +303,16 @@ auto key_lens(const std::string& key)
             }
             return Value{};
         },
-        // Setter
+        // Setter (strict mode)
+        // Note: For auto-vivification, use set_at_path_vivify() from path_utils.h
         [key](Value obj, Value value) -> Value {
             if (auto* map = obj.get_if<ValueMap>()) {
                 auto new_map = map->set(key, immer::box<Value>{std::move(value)});
                 return Value{std::move(new_map)};
             }
-#ifdef lager_ext_AUTO_VIVIFICATION
-            // Auto-vivification: create new map
-            ValueMap new_map;
-            new_map = new_map.set(key, immer::box<Value>{std::move(value)});
-            return Value{std::move(new_map)};
-#else
             // Strict mode: log error and return unchanged
             std::cerr << "[key_lens] Not a map, cannot set key: " << key << "\n";
             return obj;
-#endif
         });
 }
 
@@ -344,7 +328,8 @@ auto index_lens(std::size_t index)
             }
             return Value{};
         },
-        // Setter
+        // Setter (strict mode)
+        // Note: For auto-vivification, use set_at_path_vivify() from path_utils.h
         [index](Value obj, Value value) -> Value {
             if (auto* vec = obj.get_if<ValueVector>()) {
                 if (index < vec->size()) {
@@ -352,33 +337,11 @@ auto index_lens(std::size_t index)
                         return immer::box<Value>{std::move(value)};
                     });
                     return Value{std::move(new_vec)};
-                } else {
-                    // Extend vector to accommodate index
-                    auto new_vec = *vec;
-                    for (std::size_t i = vec->size(); i <= index; ++i) {
-                        new_vec = new_vec.push_back(immer::box<Value>{Value{}});
-                    }
-                    new_vec = new_vec.update(index, [&](auto&&) {
-                        return immer::box<Value>{std::move(value)};
-                    });
-                    return Value{std::move(new_vec)};
                 }
             }
-#ifdef lager_ext_AUTO_VIVIFICATION
-            // Auto-vivification: create new vector
-            ValueVector new_vec;
-            for (std::size_t i = 0; i <= index; ++i) {
-                new_vec = new_vec.push_back(immer::box<Value>{Value{}});
-            }
-            new_vec = new_vec.update(index, [&](auto&&) {
-                return immer::box<Value>{std::move(value)};
-            });
-            return Value{std::move(new_vec)};
-#else
             // Strict mode: log error and return unchanged
-            std::cerr << "[index_lens] Not a vector, cannot set index: " << index << "\n";
+            std::cerr << "[index_lens] Not a vector or index out of range: " << index << "\n";
             return obj;
-#endif
         });
 }
 
