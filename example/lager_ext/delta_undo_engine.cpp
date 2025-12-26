@@ -727,12 +727,12 @@ double get_double_value(const Value& v) {
 void demo_delta_undo_basic() {
     std::cout << "\n========== Delta Undo Basic Demo ==========\n";
 
-    // Create initial scene using Value::object factory
+    // Create initial scene using Value::map factory
     SceneState initial;
     initial.root_id = "root";
     initial.objects = initial.objects.set("obj1", SceneObject{
         "obj1", "Transform",
-        Value::object({{"x", 0.0}, {"y", 0.0}}),
+        Value::map({{"x", 0.0}, {"y", 0.0}}),
         {}, {}
     });
 
@@ -790,7 +790,7 @@ void demo_system_persistence() {
     initial.root_id = "root";
     initial.objects = initial.objects.set("obj1", SceneObject{
         "obj1", "Transform",
-        Value::object({{"x", 0.0}}),
+        Value::map({{"x", 0.0}}),
         {}, {}
     });
 
@@ -818,7 +818,7 @@ void demo_system_persistence() {
     std::cout << "\n[T2] System loads obj2 (lazy load - NOT recorded)\n";
     controller.dispatch(actions::LoadObjects{{
         SceneObject{"obj2", "Light",
-            Value::object({{"x", 100.0}}),
+            Value::map({{"x", 100.0}}),
             {}, {}}
     }});
     print_state();
@@ -853,7 +853,7 @@ void demo_transactions() {
     SceneState initial;
     initial.objects = initial.objects.set("obj1", SceneObject{
         "obj1", "Transform",
-        Value::object({{"x", 0.0}, {"y", 0.0}, {"z", 0.0}}),
+        Value::map({{"x", 0.0}, {"y", 0.0}, {"z", 0.0}}),
         {}, {}
     });
 
@@ -901,7 +901,7 @@ void demo_interleaved_operations() {
     SceneState initial;
     initial.objects = initial.objects.set("player", SceneObject{
         "player", "Character",
-        Value::object({{"health", 100.0}, {"score", 0.0}}),
+        Value::map({{"health", 100.0}, {"score", 0.0}}),
         {}, {}
     });
 
@@ -938,7 +938,7 @@ void demo_interleaved_operations() {
     std::cout << "\n[System] Enemy spawns (lazy loaded)\n";
     controller.dispatch(actions::LoadObjects{{
         SceneObject{"enemy1", "Enemy",
-            Value::object({{"health", 50.0}}),
+            Value::map({{"health", 50.0}}),
             {}, {}}
     }});
     print_state();
@@ -950,7 +950,7 @@ void demo_interleaved_operations() {
     std::cout << "\n[System] Another enemy spawns\n";
     controller.dispatch(actions::LoadObjects{{
         SceneObject{"enemy2", "Enemy",
-            Value::object({{"health", 75.0}}),
+            Value::map({{"health", 75.0}}),
             {}, {}}
     }});
     print_state();

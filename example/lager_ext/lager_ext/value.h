@@ -256,8 +256,8 @@ struct BasicValue
     //   - table()             -> value_table (HAMT with .id key, O(log N) lookup)
     //
     // Usage examples:
-    //   // Map (object) from key-value pairs
-    //   Value obj = Value::object({
+    //   // Map from key-value pairs
+    //   Value obj = Value::map({
     //       {"name", "Alice"},
     //       {"age", 25},
     //       {"active", true}
@@ -271,34 +271,29 @@ struct BasicValue
     //
     //   // Table for id-indexed collections
     //   Value users = Value::table({
-    //       {"user_001", Value::object({{"name", "Alice"}})},
-    //       {"user_002", Value::object({{"name", "Bob"}})}
+    //       {"user_001", Value::map({{"name", "Alice"}})},
+    //       {"user_002", Value::map({{"name", "Bob"}})}
     //   });
     //
     //   // Nested structures
-    //   Value scene = Value::object({
+    //   Value scene = Value::map({
     //       {"objects", Value::table({
-    //           {"obj_1", Value::object({{"name", "Cube"}, {"visible", true}})},
-    //           {"obj_2", Value::object({{"name", "Sphere"}, {"visible", false}})}
+    //           {"obj_1", Value::map({{"name", "Cube"}, {"visible", true}})},
+    //           {"obj_2", Value::map({{"name", "Sphere"}, {"visible", false}})}
     //       })},
-    //       {"settings", Value::object({{"quality", "high"}})}
+    //       {"settings", Value::map({{"quality", "high"}})}
     //   });
     // ============================================================
 
     /// Create a map from initializer list of key-value pairs (HAMT)
     /// @param init List of {key, value} pairs
     /// @return BasicValue containing a value_map
-    static BasicValue object(std::initializer_list<std::pair<std::string, BasicValue>> init) {
+    static BasicValue map(std::initializer_list<std::pair<std::string, BasicValue>> init) {
         auto t = value_map{}.transient();
         for (const auto& [key, val] : init) {
             t.set(key, value_box{val});
         }
         return BasicValue{t.persistent()};
-    }
-
-    /// Alias for object() - creates a value_map
-    static BasicValue map(std::initializer_list<std::pair<std::string, BasicValue>> init) {
-        return object(init);
     }
 
     /// Create a vector from initializer list (RRB-tree, supports efficient append/update)
@@ -317,11 +312,11 @@ struct BasicValue
     /// @param init List of values
     /// @return BasicValue containing a value_array
     static BasicValue array(std::initializer_list<BasicValue> init) {
-        auto t = value_array{}.transient();
+        value_array result;
         for (const auto& val : init) {
-            t.push_back(value_box{val});
+            result = std::move(result).push_back(value_box{val});
         }
-        return BasicValue{t.persistent()};
+        return BasicValue{std::move(result)};
     }
 
     /// Create a table from initializer list of id-value pairs (HAMT with .id key)
@@ -1301,7 +1296,7 @@ public:
     /// @param fn Function taking value_type and returning value_type
     /// @return Reference to this builder for chaining
     /// @example
-    ///   builder.push_back(Value::object({{"count", 0}}))
+    ///   builder.push_back(Value::map({{"count", 0}}))
     ///          .update_at(0, [](Value v) {
     ///              return v.set("count", Value{v.at("count").get_or<int>(0) + 1});
     ///          });
@@ -1320,7 +1315,7 @@ public:
     /// @param val The value to set
     /// @return Reference to this builder for chaining
     /// @example
-    ///   builder.push_back(Value::object({}))
+    ///   builder.push_back(Value::map({}))
     ///          .set_in({0, "user", "name"}, "Alice");
     template <typename T>
     BasicVectorBuilder& set_in(const Path& path, T&& val) {
@@ -1604,7 +1599,7 @@ public:
     ///   // Increment counter or initialize to 1
     ///   builder.upsert("user_001", [](Value current) {
     ///       if (current.is_null()) {
-    ///           return Value::object({{"visits", 1}});
+    ///           return Value::map({{"visits", 1}});
     ///       }
     ///       int visits = current.at("visits").get_or<int>(0);
     ///       return current.set("visits", Value{visits + 1});
