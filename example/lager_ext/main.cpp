@@ -7,7 +7,7 @@
 // Scheme 1: Custom ErasedLens using std::function
 // Scheme 2: lager::lens<Value, Value> using lager's built-in type erasure
 // Scheme 3: lager::lenses::at with Value's container interface
-// Scheme 4: JSON Pointer (RFC 6901) API for familiar path syntax
+// Scheme 4: String Path API for familiar path syntax
 // Scheme 5: Static Path (compile-time paths for known schemas)
 //
 // All schemes work with the same Value type defined in value.h
@@ -16,7 +16,7 @@
 #include <lager_ext/erased_lens.h>
 #include <lager_ext/lager_lens.h>
 #include <lager_ext/at_lens.h>
-#include <lager_ext/json_pointer.h>
+#include <lager_ext/string_path.h>
 #include <lager_ext/static_path.h>
 #include <lager_ext/diff_collector.h>
 #include <lager_ext/shared_state.h>
@@ -182,7 +182,7 @@ int main()
         std::cout << "E. Scheme 1: Custom ErasedLens\n";
         std::cout << "L. Scheme 2: lager::lens<Value, Value>\n";
         std::cout << "A. Scheme 3: lager::lenses::at\n";
-        std::cout << "J. Scheme 4: JSON Pointer API\n";
+        std::cout << "J. Scheme 4: String Path API\n";
         std::cout << "S. Scheme 5: Static Path (compile-time)\n";
         std::cout << "\n=== Diff Demos ===\n";
         std::cout << "D. Demo immer::diff (basic)\n";
@@ -244,7 +244,7 @@ int main()
             break;
         case 'J':
         case 'j':
-            demo_json_pointer();
+            demo_string_path();
             break;
         case 'S':
         case 's':

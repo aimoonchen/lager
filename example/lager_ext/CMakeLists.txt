@@ -64,7 +64,7 @@ set(lager_ext_LIB_SOURCES
     erased_lens.cpp
     lager_lens.cpp
     at_lens.cpp
-    json_pointer.cpp
+    string_path.cpp
     static_path.cpp
     diff_collector.cpp
     shared_state.cpp
@@ -79,7 +79,7 @@ set(lager_ext_LIB_HEADERS
     lager_ext/erased_lens.h
     lager_ext/lager_lens.h
     lager_ext/at_lens.h
-    lager_ext/json_pointer.h
+    lager_ext/string_path.h
     lager_ext/static_path.h
     lager_ext/path_utils.h
     lager_ext/diff_collector.h

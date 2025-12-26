@@ -1176,7 +1176,7 @@ Value from_json(const std::string& json_str, std::string* error_out) {
     return parser.parse(error_out);
 }
 
-// Note: path_to_json_pointer() and json_pointer_to_path() are implemented
-// in json_pointer.cpp to avoid duplicate definitions.
+// Note: path_to_string_path() and parse_string_path() are implemented
+// in string_path.cpp to avoid duplicate definitions.
 
 } // namespace lager_ext
